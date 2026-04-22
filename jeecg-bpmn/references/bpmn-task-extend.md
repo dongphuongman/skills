@@ -18,6 +18,20 @@ taskExtendJson 控制审批节点的行为，以 JSON 字符串存储在 extensi
 | `isEmptyAssignedByPreviousNode` | bool | `false` | 上一节点未指派时是否允许空 |
 | `isSkipApprovedOnCountersignReturn` | bool | `false` | 会签驳回时是否跳过已审批的人 |
 
+### 配置项互斥规则（必须遵守）
+
+以下三个配置项逻辑上互斥，**不可同时设为 `true`**：
+
+| 已设为 true 的配置 | 不可同时为 true |
+|-------------------|----------------|
+| `isSkipAssigneeEmpty`（为空自动跳过） | `isAssignedByPreviousNode`、`isEmptyAssignedByPreviousNode` |
+| `isAssignedByPreviousNode`（由上节点指定） | `isSkipAssigneeEmpty`、`isEmptyAssignedByPreviousNode` |
+| `isEmptyAssignedByPreviousNode`（为空则由上节点指定） | `isSkipAssigneeEmpty`、`isAssignedByPreviousNode` |
+
+**`isSkipApprovedOnCountersignReturn`**（会签退回后已审批过的不需要审）仅会签节点（`countersign`）可设为 `true`，普通审批节点必须为 `false`。
+
+> 生成或修改 taskExtendJson 时，若用户要求开启某项，需同时关闭与之互斥的配置。
+
 使用 taskExtendJson 时，通常需要配合跳过审批监听器：
 ```xml
 <flowable:taskListener class="org.jeecg.modules.extbpm.listener.task.TaskSkipApprovalListener" event="create" />

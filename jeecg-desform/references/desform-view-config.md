@@ -1,11 +1,11 @@
-# 视图创建完整指南
+# 表单视图创建完整指南
 
-## 视图类型
+## 表单视图类型
 
-- **主视图**（desformType=1）：默认创建的表单
-- **子视图**（desformType=2）：基于主视图创建的视图变体，通过 `parentId/parentCode` 关联
+- **主表单视图**（desformType=1）：默认创建的表单
+- **子表单视图**（desformType=2）：基于主表单视图创建的表单视图变体，通过 `parentId/parentCode` 关联
 
-> 优先使用 `scripts/desform_view_creator.py` 通用脚本创建视图，支持复制主视图或自定义字段两种模式。
+> 优先使用 `scripts/desform_view_creator.py` 通用脚本创建表单视图，支持复制主表单视图或自定义字段两种模式。
 
 ## 命令行参数
 
@@ -14,25 +14,25 @@
 | `--api-base` | 是 | JeecgBoot 后端地址 |
 | `--token` | 是 | X-Access-Token |
 | `--parent-code` | 是 | 主表单编码（desformType=1 的表单） |
-| `--view-name` | 是 | 视图名称 |
-| `--view-code` | 是 | 视图编码 |
-| `--mobile` | 否 | 设为移动端视图 |
+| `--view-name` | 是 | 表单视图名称 |
+| `--view-code` | 是 | 表单视图编码 |
+| `--mobile` | 否 | 设为移动端表单视图 |
 | `--config` | 否 | 自定义字段 JSON 配置文件 |
-| `--force` | 否 | 强制覆盖已存在的视图 |
+| `--force` | 否 | 强制覆盖已存在的表单视图 |
 
 ## 两种创建模式
 
-### 模式一：复制主视图（不传 --config）
+### 模式一：复制主表单视图（不传 --config）
 
-直接复制主视图的 desformDesignJson 创建子视图。最简方式，无需准备 JSON 文件。
+直接复制主表单视图的 desformDesignJson 创建子表单视图。最简方式，无需准备 JSON 文件。
 
 ```bash
-# PC 子视图（原样复制主视图设计）
+# PC 表单视图（原样复制主表单视图设计）
 python desform_view_creator.py --api-base <URL> --token <TOKEN> \
     --parent-code proj_task_management \
     --view-name "项目任务-简洁视图" --view-code proj_task_simple
 
-# 移动端视图（复制 + 自动应用移动端优化）
+# 移动端表单视图（复制 + 自动应用移动端优化）
 python desform_view_creator.py --api-base <URL> --token <TOKEN> \
     --parent-code proj_task_management \
     --view-name "项目任务-移动端" --view-code proj_task_mobile --mobile
@@ -40,7 +40,7 @@ python desform_view_creator.py --api-base <URL> --token <TOKEN> \
 
 ### 模式二：自定义字段（传 --config）
 
-使用独立的 JSON 配置文件定义视图字段，格式与 `desform_creator.py` 的配置相同（见 `desform-json-config.md`），但 **formName/formCode 不写在 JSON 中**，而是由命令行的 `--view-name` / `--view-code` 传入。
+使用独立的 JSON 配置文件定义表单视图字段，格式与 `desform_creator.py` 的配置相同（见 `desform-json-config.md`），但 **formName/formCode 不写在 JSON 中**，而是由命令行的 `--view-name` / `--view-code` 传入。
 
 ```bash
 python desform_view_creator.py --api-base <URL> --token <TOKEN> \
@@ -49,7 +49,7 @@ python desform_view_creator.py --api-base <URL> --token <TOKEN> \
     --config mobile_view.json --mobile
 ```
 
-## 自定义视图 JSON 配置格式
+## 自定义表单视图 JSON 配置格式
 
 ```json
 {
@@ -82,11 +82,11 @@ python desform_view_creator.py --api-base <URL> --token <TOKEN> \
 
 ## `--mobile` 自动优化规则
 
-当使用 `--mobile` 参数时，脚本会自动对设计 JSON 应用以下优化（无论是复制主视图还是自定义配置）：
+当使用 `--mobile` 参数时，脚本会自动对设计 JSON 应用以下优化（无论是复制主表单视图还是自定义配置）：
 
 | 优化项 | 规则 | 说明 |
 |--------|------|------|
-| `config.designMobileView` | → `true` | 标记为移动端视图 |
+| `config.designMobileView` | → `true` | 标记为移动端表单视图 |
 | 所有控件 `autoWidth` | → `100` | 单列全宽显示 |
 | `radio`/`checkbox` | 添加 `mobileOptions: {inline: true, matrixWidth: 80}` | 选项横向排列 |
 | `date`/`time` | 添加 `mobileOptions: {editable: false}` | 禁止手动输入，仅弹窗选择 |
@@ -96,18 +96,18 @@ python desform_view_creator.py --api-base <URL> --token <TOKEN> \
 
 ---
 
-## 移动端视图设计规范
+## 移动端表单视图设计规范
 
-当设计移动端视图时（`izMobileView=1` 或 `config.designMobileView=true`），AI 应遵循：
+当设计移动端表单视图时（`izMobileView=1` 或 `config.designMobileView=true`），AI 应遵循：
 
 1. **单列布局**：所有控件 autoWidth 设为 100，不使用半行布局
 2. **简化字段**：精简核心信息，次要字段设 `hiddenOnAdd: true`
 3. **避免复杂容器**：不用 Grid 多列、Tabs，改用 Divider 分区
 4. **输入友好**：date/time 设 `mobileOptions: {editable: false}`；radio/checkbox 设 `mobileOptions: {inline: true}`
 5. **子表优化**：使用 `operationMode: 2`（弹出编辑）
-6. **layout 选择**：移动端视图使用 `layout='full'`
+6. **layout 选择**：移动端表单视图使用 `layout='full'`
 
-> **最佳实践**：移动端视图优先使用 `--mobile` 复制主视图并自动优化，而非手动构建全部控件。`--mobile` 已自动覆盖上述规范中的第 1/4/5 条。
+> **最佳实践**：移动端表单视图优先使用 `--mobile` 复制主表单视图并自动优化，而非手动构建全部控件。`--mobile` 已自动覆盖上述规范中的第 1/4/5 条。
 
 ---
 
@@ -119,32 +119,32 @@ python desform_view_creator.py --api-base <URL> --token <TOKEN> \
 create_view(parent_code, view_name, view_code, design_json=None, is_mobile=False)
 ```
 
-- `design_json=None` 时自动复制主视图的设计 JSON
-- `is_mobile=True` 时设为移动端视图（同一主视图下只能有一个）
+- `design_json=None` 时自动复制主表单视图的设计 JSON
+- `is_mobile=True` 时设为移动端表单视图（同一主表单视图下只能有一个）
 
 ---
 
 ## 完整示例
 
-### 示例一：为主表单创建 PC + 移动端两个视图
+### 示例一：为主表单创建 PC + 移动端两个表单视图
 
 ```bash
 # 假设已有主表单 proj_task_management
 
-# 步骤 1：创建 PC 子视图（复制主视图设计）
-python desform_view_creator.py --api-base http://192.168.1.233:3100/jeecgboot \
+# 步骤 1：创建 PC 表单视图（复制主表单视图设计）
+python desform_view_creator.py --api-base <api_base> \
     --token <TOKEN> \
     --parent-code proj_task_management \
     --view-name "项目任务管理-简洁视图" --view-code proj_task_mgmt_simple
 
-# 步骤 2：创建移动端视图（复制主视图 + 移动端优化）
-python desform_view_creator.py --api-base http://192.168.1.233:3100/jeecgboot \
+# 步骤 2：创建移动端表单视图（复制主表单视图 + 移动端优化）
+python desform_view_creator.py --api-base <api_base> \
     --token <TOKEN> \
     --parent-code proj_task_management \
     --view-name "项目任务管理-移动端" --view-code proj_task_mgmt_mobile --mobile
 ```
 
-### 示例二：使用自定义字段配置创建移动端精简视图
+### 示例二：使用自定义字段配置创建移动端精简表单视图
 
 **mobile_view.json:**
 ```json
@@ -174,7 +174,7 @@ python desform_view_creator.py --api-base http://192.168.1.233:3100/jeecgboot \
 ```
 
 ```bash
-python desform_view_creator.py --api-base http://192.168.1.233:3100/jeecgboot \
+python desform_view_creator.py --api-base <api_base> \
     --token <TOKEN> \
     --parent-code proj_task_management \
     --view-name "项目任务管理-移动端" --view-code proj_task_mgmt_mobile \
@@ -199,18 +199,18 @@ python desform_view_creator.py --api-base http://192.168.1.233:3100/jeecgboot \
 
 **在 JSON 配置中不受此限制**——`desform_view_creator.py` 和 `desform_creator.py` 内部自动处理 `parent_key`。
 
-### 3. 移动端视图推荐"复制 + 优化"模式
+### 3. 移动端表单视图推荐"复制 + 优化"模式
 
-手动构建移动端视图的全部控件容易遗漏 `parent_key`、`config` 结构等细节。推荐做法：
+手动构建移动端表单视图的全部控件容易遗漏 `parent_key`、`config` 结构等细节。推荐做法：
 
 1. 先创建主表单
-2. 使用 `--mobile` 复制主视图并自动优化
+2. 使用 `--mobile` 复制主表单视图并自动优化
 3. 如需精简字段，使用 `--config` 自定义字段列表 + `--mobile` 自动优化
 
-### 4. 同一主视图下只能有一个移动端视图
+### 4. 同一主表单视图下只能有一个移动端表单视图
 
-JeecgBoot 限制每个主表单最多一个 `izMobileView=1` 的子视图。创建第二个移动端视图前需先删除旧的，或使用 `--force` 覆盖。
+JeecgBoot 限制每个主表单最多一个 `izMobileView=1` 的子表单视图。创建第二个移动端表单视图前需先删除旧的，或使用 `--force` 覆盖。
 
-### 5. 视图编码查询
+### 5. 表单视图编码查询
 
-`query_form(code)` 默认按编码查询，但可能查不到子视图（取决于后端实现）。如需查询子视图详情，使用 `get_form_id(view_code)` 获取 ID。
+`query_form(code)` 默认按编码查询，但可能查不到子表单视图（取决于后端实现）。如需查询子表单视图详情，使用 `get_form_id(view_code)` 获取 ID。

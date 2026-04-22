@@ -224,7 +224,7 @@ description: Use when user asks to create/design a big screen (大屏), full-scr
 
 先列出数据源让用户选择，等用户选择后再继续：
 ```bash
-py datasource_ops.py list "http://192.168.1.66:8080/jeecg-boot" "TOKEN"
+py datasource_ops.py list "<api_base>" "TOKEN"
 ```
 
 ### 第2步：根据业务场景自行编写SQL
@@ -396,8 +396,8 @@ page = bi_utils.query_page(PAGE_ID); bi_utils._page_components[PAGE_ID] = page.g
 ```
 轮次1: [并行] Bash: yapi list（查已有接口，复用勿重建）
                Write: 批量脚本（内嵌数据集创建+全部图表添加，直接填入最终凭据）
-轮次2: Bash: cp /c/Users/25067/.../bi_utils.py /c/Users/25067/bi_utils.py && \
-             cp /c/Users/25067/.../default_configs.json /c/Users/25067/default_configs.json && \
+轮次2: Bash: cp "<skill_base_dir>/references/bi_utils.py" . && \
+             cp "<skill_base_dir>/references/scripts/default_configs.json" . && \
              PYTHONIOENCODING=utf-8 py batch_script.py && \
              rm batch_script.py bi_utils.py default_configs.json
 ```
@@ -496,6 +496,42 @@ field_option = [
 - **背景图**：默认 `/img/bg/bg4.png`，支持自定义
 - **装饰元素**：常用 JDragBorder（边框）、JDragDecoration（装饰条）增强视觉效果
 - **典型分辨率**：1920×1080
+
+> **⚠️ 以下为大屏固定默认值，用户未说明时无需重复声明，脚本中直接使用：**
+> - 分辨率：`1920×1080`（desJson.height=1080，宽度由前端固定）
+> - 背景图：`/img/bg/bg4.png`（深空星空，极暗底色，文字必须用亮色）
+> - 主题：`dark`，style：`bigScreen`，designType：`100`
+> - 只有用户明确要求更换分辨率或背景图时才修改
+
+### 默认背景图 bg4.png 配色指引（强制）
+
+> **bg4.png 是深空星空渐变图**：四角纯黑（`#000000`），中心深海蓝（`#021533`～`#03234d`），整体极暗。文字/标签颜色必须足够亮才能保证可读性。
+
+**适合在 bg4.png 上使用的颜色（亮色系）：**
+
+| 用途 | 推荐色 | 说明 |
+|------|--------|------|
+| 主标题 | `#f0c040`（金色）、`#ffffff` | 高亮，确保醒目 |
+| 小节标题 / 标签文字 | `#00d4ff`（青色）、`#e0f0ff` | 亮蓝，与背景蓝形成冷暖对比 |
+| 普通数值 / 说明文字 | `#d4e8ff`、`#8ab8d0` | 淡蓝白，清晰但不刺眼 |
+| 辅助/次要文字 | `#5a8ab0` | 暗蓝，用于 ticker/备注 |
+| 图表轴标签 / 图例 | `#8ab8d0` | 不能用深色，否则被背景淹没 |
+| 进度条/高亮强调 | `#f0c040`、`#2ed573`、`#ff4757` | 金/绿/红，高对比强调色 |
+
+**严禁在 bg4.png 上使用的颜色（深色系，会被背景吞没）：**
+- `#333333`、`#464646`、`#666666` 等深灰 — ECharts 默认轴色，**必须覆盖**
+- `#000000`、`#0a1628`、`#021533` — 与背景融为一体，完全不可见
+- `rgba(0,0,0,x)` — 任何黑色半透明
+
+**ECharts 组件必须显式覆盖的默认暗色字段（强制）：**
+```python
+opt_patch = {
+    'xAxis': {'axisLabel': {'color': '#8ab8d0'}, 'axisLine': {'lineStyle': {'color': '#1a3a5a'}}},
+    'yAxis': {'axisLabel': {'color': '#8ab8d0'}, 'splitLine': {'lineStyle': {'color': '#1a3a5a55'}}},
+    'legend': {'textStyle': {'color': '#8ab8d0'}},
+    'tooltip': {'backgroundColor': '#0b1e3acc', 'textStyle': {'color': '#e0f0ff'}},
+}
+```
 
 ### 图层背景色规则（强制）
 
@@ -777,7 +813,7 @@ PUBLIC_FIELDS_DESIGN = [
 
 **示例：**
 ```bash
-py proc_ops.py bindcomp "http://192.168.1.66:8080/jeecg-boot" "$TOKEN" \
+py proc_ops.py bindcomp "<api_base>" "$TOKEN" \
   --page "PAGE_ID" --comp "JCommonTable" --title "Demo数据表格" \
   --x 50 --y 280 --w 900 --h 450 \
   --proc-name "sp_query_demo" \
@@ -829,7 +865,7 @@ py proc_ops.py bindcomp "http://192.168.1.66:8080/jeecg-boot" "$TOKEN" \
 
 **完整命令**：直接在本 skill 的 `references/scripts/` 目录下运行，Claude 根据平台自动构建路径和 Python 命令：
 ```
-python gen_all_comps.py "http://192.168.1.66:8080/jeecg-boot" "TOKEN值" "全组件大屏"
+python gen_all_comps.py "<api_base>" "TOKEN值" "全组件大屏"
 ```
 
 > 脚本已内置 subprocess clip，URL 自动复制到剪贴板，无需外部 `| clip.exe`
@@ -853,14 +889,14 @@ python gen_all_comps.py "http://192.168.1.66:8080/jeecg-boot" "TOKEN值" "全组
 
 **FILES + 已有页面全组件标准命令（3轮完成）：**
 ```bash
+# <skill_base_dir> = skill 加载时显示的 Base directory for this skill（Windows 路径，Git Bash 下需转为 /c/Users/... 格式）
 # 轮次1: 分析Excel列名（openpyxl）+ Read凭据
 # 轮次2: cp 4个文件 + ls验证 + 创建数据集（--no-chart）+ 生成全组件 + rm
-cp "/c/Users/25067/.claude/skills/jimubi-bigscreen/references/scripts/files_ops.py" "/c/Users/25067/files_ops.py" && \
-cp "/c/Users/25067/.claude/skills/jimubi-bigscreen/references/scripts/gen_all_comps.py" "/c/Users/25067/gen_all_comps.py" && \
-cp "/c/Users/25067/.claude/skills/jimubi-bigscreen/references/bi_utils.py" "/c/Users/25067/bi_utils.py" && \
-cp "/c/Users/25067/.claude/skills/jimubi-bigscreen/references/scripts/default_configs.json" "/c/Users/25067/default_configs.json" && \
-ls /c/Users/25067/files_ops.py /c/Users/25067/gen_all_comps.py /c/Users/25067/bi_utils.py /c/Users/25067/default_configs.json && \
-cd /c/Users/25067 && \
+cp "<skill_base_dir>/references/scripts/files_ops.py" . && \
+cp "<skill_base_dir>/references/scripts/gen_all_comps.py" . && \
+cp "<skill_base_dir>/references/bi_utils.py" . && \
+cp "<skill_base_dir>/references/scripts/default_configs.json" . && \
+ls files_ops.py gen_all_comps.py bi_utils.py default_configs.json && \
 PYTHONIOENCODING=utf-8 py files_ops.py create-bind API_BASE TOKEN PAGE_ID \
     --files file1.xlsx file2.xlsx --join-on 关联列 --group-by 字段1,字段2 --agg 聚合列 \
     --col-name name --col-type type --col-sales sales --no-chart 2>&1 | tee /tmp/fo.txt && \
@@ -869,7 +905,7 @@ echo "DS_ID=$DS_ID" && \
 PYTHONIOENCODING=utf-8 py gen_all_comps.py API_BASE TOKEN "页面名" \
     --page-id PAGE_ID --ds-id "$DS_ID" --ds-type FILES \
     --ds-name "数据集名称" --ds-fields "name:String,type:String,sales:Integer" && \
-rm /c/Users/25067/files_ops.py /c/Users/25067/gen_all_comps.py /c/Users/25067/bi_utils.py /c/Users/25067/default_configs.json
+rm files_ops.py gen_all_comps.py bi_utils.py default_configs.json
 ```
 
 **字段映射规则（自动推断，无需手动指定）：**
@@ -1133,7 +1169,7 @@ bi_utils._request('POST', '/drag/page/edit', data={
 > **⚠️ 添加/编辑/删除组件必须使用 comp_ops.py，严禁直接调用 bi_utils.add_xxx() + save_page()。**
 > 原因：bi_utils.add_component() 内部将 `_page_components[page_id]` 初始化为空列表，save_page 时会用空列表覆盖页面已有的全部组件，造成不可恢复的数据丢失。comp_ops.py 会先加载已有模板再操作，安全无损。
 
-**脚本位置**：`~/.claude/skills/jimubi-bigscreen/references/scripts/comp_ops.py`
+**脚本位置**：`<skill_base_dir>/references/scripts/comp_ops.py`
 
 **执行方式**：直接在本 skill 的 `references/scripts/` 目录下运行，无需 cp。`bi_utils.py` 位于上级目录，脚本会自动找到。Claude 执行时根据当前平台构建完整路径（macOS/Linux 用 `python3`，Windows 用 `py`）。
 
@@ -1218,15 +1254,61 @@ rm sql.txt
 
 **SQL 含 `!=` 等特殊字符时**：同样禁止通过 bash 传递，必须用 `--sql-file` 或写 Python 脚本在内部定义 SQL。
 
+## 🚨 组件编写核心原则（等同于人在界面操作，强制）
+
+> **组件的创建、数据、配置三件事必须按以下方式处理，禁止凭感觉和想象构造任何字段。**
+
+### 原则一：创建组件 = 使用默认配置（先拷贝后定制）
+
+人在界面拖出一个组件，得到的是系统默认配置。脚本中等价操作是：
+```python
+d = copy.deepcopy(defaults[compType])   # 相当于从面板拖出
+```
+**禁止跳过这一步直接手写 option dict。**
+
+### 原则二：动态数据格式必须与静态数据格式一致
+
+`default_configs.json` 中的 `chartData` 就是该组件的静态数据格式。动态数据（API/SQL 返回的数据）必须与这个格式完全一致，否则组件无法渲染：
+```python
+# 先看 defaults 里的静态格式
+# JBreakRing: [{"value": 1048, "name": "oppo"}, ...]
+# 动态数据也必须返回同样的字段名和结构
+```
+
+### 原则三：修改配置必须先查该组件支持的字段
+
+不能凭感觉猜测字段名。修改任何组件的 option 字段前，必须先找到该组件的配置文档，按以下优先级查找：
+
+1. **有独立配置文档的组件** → 查对应的 `references/*-option-config.md`（按需加载，上方「按需加载指南」表格中列出）
+   - 例：JBreakRing → `references/break-ring-option-config.md`
+   - 例：JStatsSummary → `references/stats-summary-option-config.md`
+   - 例：JScrollList → `references/scroll-list-option-config.md`
+   - 例：JTabToggle → `references/tab-toggle-option-config.md` 等
+2. **无独立文档的组件** → 查 `references/bi-comp-option-config.md`（通用配置速查）
+3. **以上都没有** → 在界面操作该配置项，再用 `comp_ops.py list` 查看实际存储的字段名，或直接读组件的 `*Option.vue` 源文件确认
+
+**禁止**：在不知道字段名的情况下凭感觉构造 option，这是导致配置无效或组件不显示的根本原因。
+
 **自定义脚本添加图表的强制规则：**
-1. **图表 config 必须从 `default_configs.json` 深拷贝**：`json.loads(json.dumps(defaults['JPie']))`，再覆盖动态数据字段。禁止手写 option/series 配置
+1. **🚨 图表 config 必须先从 `default_configs.json` 深拷贝，再进行定制（强制两步顺序，不可颠倒）**：
+   ```python
+   # 第一步：深拷贝完整默认配置（option/chartData/dataMapping 全部来自此处）
+   d = copy.deepcopy(defaults['JBreakRing'])
+   opt = d['option']
+   # 第二步：在默认结构基础上覆盖需要定制的字段
+   opt['customColor'] = [...]
+   opt['title']['show'] = False
+   cfg['option'] = opt
+   cfg['dataMapping'] = d['dataMapping']
+   ```
+   **严禁跳过第一步直接手写 option dict**（手写必然遗漏 series/tooltip/grid 等渲染必需字段，导致组件空白或报错）。`default_configs.json` 中存有所有组件的完整默认结构，必须以它为基础进行修改，而不是从零构建。
 2. **字典翻译用 jimu_dict**：`/jmreport/dict/*` API，不是 `/sys/dict/*`（系统字典需签名且表不同）
 3. **dictOptions 从 `getAllChartData` 获取**：创建数据集后调 `getAllChartData`，将返回的 `dictOptions` 写入组件 config，禁止手动构建
 4. **datasetItemList 中绑定 dictCode**：如 `{'fieldName': 'name', ..., 'dictCode': 'sex'}` 实现字段级字典翻译
 
 ### 全部预置脚本一览
 
-脚本目录：`C:\Users\25067\.claude\skills\jimubi-bigscreen\references\scripts\`
+脚本目录：`<skill_base_dir>\references\scripts\`（`<skill_base_dir>` 为 skill 加载时显示的 `Base directory for this skill` 路径）
 
 | 脚本 | 功能 | 常用命令 |
 |------|------|---------|
@@ -1496,7 +1578,7 @@ bi_utils.save_page(PAGE_ID)
 
 > **组件联动 = 点击源组件，将参数传递给目标组件的数据集查询参数，目标组件自动刷新数据。**
 
-**脚本位置**：`~/.claude/skills/jimubi-bigscreen/references/scripts/linkage_ops.py`
+**脚本位置**：`<skill_base_dir>/references/scripts/linkage_ops.py`
 
 **执行方式**：直接在本 skill 的 `references/scripts/` 目录下运行，无需 cp。`bi_utils.py` 位于上级目录，脚本会自动找到。Claude 执行时根据当前平台构建完整路径（macOS/Linux 用 `python3`，Windows 用 `py`）。
 
@@ -1662,7 +1744,7 @@ cfg['paramOption'] = [
 
 > **组件外部链接 = 点击图表跳转到外部 URL，并将点击参数带到链接地址上。**
 
-**脚本位置**：`~/.claude/skills/jimubi-bigscreen/references/scripts/link_ops.py`
+**脚本位置**：`<skill_base_dir>/references/scripts/link_ops.py`
 
 **执行方式**：直接在本 skill 的 `references/scripts/` 目录下运行，无需 cp。`bi_utils.py` 位于上级目录，脚本会自动找到。Claude 执行时根据当前平台构建完整路径（macOS/Linux 用 `python3`，Windows 用 `py`）。
 
@@ -1760,6 +1842,7 @@ return false;
 | **🚨 删除前必须询问用户确认** | 除非用户明确说"删除/去掉/移除"，禁止自行执行任何 delete 操作。删除不可逆 |
 | **🚨 严禁 bi_utils.add_xxx + save_page** | add_component 初始化空列表，save_page 覆盖已有组件。必须用 comp_ops.py add |
 | **🚨 add_component 不加载静态数据（实测 2026-04-20）** | `bi_utils.add_component()` 固定 `dataType=1`、`chartData=[]`，不读 `default_configs.json`。批量添加静态图表时必须手动加载：`with open('default_configs.json') as f: defaults=json.load(f)`，再从 `defaults[comp_type]` 取 `chartData` 和 `option`，显式写入 config 后传给 `add_component`。否则图表一片空白 |
+| **🚨 有 default_configs.json 对应项的组件，必须先拷贝再定制（两步顺序不可颠倒，实测 2026-04-22 多次违规）** | 编写任何自定义脚本时，凡是 `default_configs.json` 中有对应 key 的组件，**第一步必须 `d = copy.deepcopy(defaults[compType])`，第二步才在 `d['option']` 上覆盖定制字段**。直接手写 option dict 必然遗漏 `series`/`tooltip`/`grid`/`rowNum`/`carousel` 等渲染必需字段，导致组件空白（JScrollRankingBoard 缺 rowNum/sort/carousel，JBreakRing 缺 series/tooltip/innerRadius，均因此不显示）。**禁止先手写 option 再拷贝个别字段进去**——顺序必须是：拷贝完整默认 → 覆盖定制项。 |
 | **🚨 add_component 前必须缓存 template（多次违规）** | 任何场景调用 add_component 前，必须先：`page=bi_utils.query_page(PAGE_ID)` → `bi_utils._page_components[PAGE_ID]=page.get('template',[])` → 再调 add_component。漏写两行则大屏所有已有组件被永久清空。适用：singleFile/dataType=4/YApi批量/所有自定义脚本 |
 | **POST /drag/page/edit 乐观锁** | 必须传 `updateCount` |
 | **chartData 必须是 JSON 字符串** | `json.dumps(...)` 后传入。**⚠️ default_configs.json 中 chartData 原始类型不一致**（list/dict/str 三种均有，如 JScrollList_1/2/3 是 list，JPivotTable 是 dict），从 defaults 读取后必须统一转换：`cd = d.get('chartData', []); cfg['chartData'] = cd if isinstance(cd, str) else json.dumps(cd, ensure_ascii=False)`。漏转或类型判断不全导致组件不显示或 TypeError（实测 2026-04-21） |
@@ -1768,10 +1851,12 @@ return false;
 | **🚨 dataMapping 只能用于 default_configs.json 中已有该字段的组件** | 绑定数据集前必须先查 `default_configs.json` 对应组件配置：有 `dataMapping` 字段才写，没有则禁止添加。无此字段的组件（JCommonTable/JScrollBoard 等）有各自的字段映射机制，详见下方「组件字段映射机制三分类」章节（2026-04-21 实测） |
 | **🔍 组件显示异常时：先在 UI 拖出参考组件，再 queryById 对比 config** | 遇到组件不显示或布局异常，最有效的调试方法：①在界面拖出相同组件到新页面，②用 `queryById` 查两个页面，③对比 `config` 差异（重点关注 `chartData` 类型、`config.size` 结构、`option` 关键字段）。已通过此方法发现：JScrollList chartData 须为字符串、JBubbleRank config.size 须省略 width（实测 2026-04-21） |
 | **🚨 JScrollList 变体 compType 必须是 `JScrollList`，禁止用 `JScrollList_1/2/3`（实测 2026-04-21）** | `JScrollList_1/2/3` 在前端不是有效 compType，用这些名称添加的组件完全不显示。三个变体的 compType 均为 `JScrollList`，variant 通过 option 区分：单行=`showHeader:false,showIndex:false,itemsPerRow:1`；多行+序号=`showHeader:false,showIndex:true,itemsPerRow:2`；带表头=`showHeader:true,showIndex:true,itemsPerRow:1`。default_configs.json 中 `JScrollList_1/2/3` 只是配置模板 key，不是 compType |
+| **🚨 JStatsSummary/JCardScroll 变体后缀同理：`_1/_2/_3` 只是 default_configs.json 的模板 key，不是真实 compType（实测 2026-04-22）** | 用 `bi_utils.add_component('JStatsSummary_1',...)` 写入 template 的 `component` 字段为 `JStatsSummary_1`，前端找不到组件，完全不渲染。实际 compType 必须是 `JStatsSummary`/`JCardScroll`（无后缀）。**现已在 `bi_utils.add_component` 内置 `_resolve_comp_type` 自动剥离数字后缀**，`comp_ops.py add` 也已有此逻辑，两条路径均安全。自定义脚本手工构造 `comp` dict 时仍需注意：`'component': 'JStatsSummary'`（不是 `_1`）。 |
 | **颜色格式只支持十六进制（实测 2026-04-20）** | 大屏所有颜色字段**只支持 `#RRGGBB` 或 `#RRGGBBAA` 十六进制格式**，禁止使用 `rgba(...)`。含透明度时用 8 位十六进制：`alpha=0→00, 0.15→26, 0.3→4d, 0.4→66, 0.5→80, 0.6→99, 0.8→cc, 1→ff`。示例：`rgba(6,18,50,0.6)` → `#06123299` |
 | **透明色** | 用 `#FFFFFF00`，禁止 `rgba(0,0,0,0)`（被解析为红色） |
 | **background 字段位置** | config 顶层，与 option 同级 |
 | **图表标题去重** | `card.title=''`，只用 `option.title.text` |
+| **🚨 JText 颜色/样式必须写在 option.body 内（实测 2026-04-22）** | JText 读取路径是 `option.body.color`，fallback 为 `#000000`。写在 `option.color` 顶层无效，显示黑色。完整字段路径见 `references/bi-comp-option-config.md`「文本设置 TextOption」章节 |
 | **🚨 option.title 两种模式，禁止混用（实测 2026-04-21）** | ECharts 组件（JBar/JLine/JPie 等）：`option.title` 是 **dict**，隐藏用 `option.title.show=False`。非 ECharts 组件（JFlashList/JBubbleRank 等）：`option.title` 是**字符串**，显隐用单独的 `option.titleShow` 布尔字段。判断方法：defaults.json 中 `option` 里若有 `titleShow` 字段 → 字符串模式，禁止将 title 字符串转为 dict，否则渲染 `[object Object]`。目前已知字符串模式组件：`JFlashList`（`titleShow+title`）|
 | **图层顺序** | 数组索引 0=最顶层，新增组件必须 `insert(0,...)`，`orderNum` 无效 |
 | **组件 ID/名称字段** | ID 是 `i`（不是 `id`），名称是 `componentName`（不是 `label`/`name`） |
@@ -1826,7 +1911,7 @@ return false;
 | **MySQL 版本 dbType** | MySQL 8 用 `MYSQL8`，MySQL 5.7 用 `MYSQL5.7` |
 | **MongoDB 数据集 dataType** | 仍是 `'sql'`，不是 `'mongodb'`（无此枚举） |
 | **py - heredoc** | stdin 模式 sys.path 绑定进程目录，import bi_utils 报错。必须 Write 脚本文件再 py 执行 |
-| **执行脚本必须 cd 到 scripts 目录** | 所有脚本直接在 `~/.claude/skills/jimubi-bigscreen/references/scripts/` 下执行，`_find_bi_utils()` 自动从上级目录加载 `bi_utils.py`，无需 cp |
+| **执行脚本必须 cd 到 scripts 目录** | 所有脚本直接在 `<skill_base_dir>/references/scripts/` 下执行，`_find_bi_utils()` 自动从上级目录加载 `bi_utils.py`，无需 cp |
 | **替换图表类型** | delete+add 时从旧 option 继承共通字段（title/xAxis/legend/color），series 专属禁止继承 |
 | **JBar 颜色** | `option.color[0]` 不生效，必须同时设 `series[0].itemStyle.color` |
 | **JLine 颜色** | 必须同时设 lineStyle.color + itemStyle.color + option.color[0] 三处 |
@@ -1840,6 +1925,7 @@ return false;
 | **record_count fieldType** | 必须是 `'count'`，用 `'int'` 报 SUM(*) SQL 错误 |
 | **地图 commonOption** | 必须含 breadcrumb 字段 |
 | **地图 option** | 必须含 drillDown 和 area 顶层字段 |
+| **🚨 add_component 添加地图类组件必须显式传 commonOption（实测 2026-04-22）** | `bi_utils.add_component` 不会自动从 `default_configs.json` 加载地图专属字段，JAreaMap/JBubbleMap/JHeatMap 等直接用 comp() 函数添加时 `commonOption` 为空，前端访问 `commonOption.breadcrumb` 报 `TypeError: Cannot read properties of undefined`。**必须显式深拷贝**：`d=copy.deepcopy(DEFAULTS['JAreaMap']); cfg['option']=d['option']; cfg['commonOption']=d['commonOption']`，再传给 add_component。**简写**：`comp('JAreaMap', ..., opt=d['option'], extra={'commonOption': d['commonOption']})` 或在 config dict 中同级传入 commonOption |
 | **饼图/雷达/词云/JProgress** | 禁用含 xAxis/yAxis 的柱形 option |
 | **JBar series** | 必须含 `type:'bar'`，禁止空数组 |
 | **DoubleLineBar yAxis** | 必须是两元素数组，config 根层必须有 seriesType:[] |
@@ -1908,7 +1994,7 @@ cfg = {
 
 ```python
 import urllib.request, json
-BASE = "http://192.168.1.66:8080/jeecg-boot"; TOKEN = "<TOKEN>"
+BASE = "<api_base>"; TOKEN = "<token>"
 # Step 1: 上传图片（multipart）→ 取 result["message"] 得 image_url
 boundary = "----FormBoundary7MA4YWxkTrZu0gW"
 with open(r"图片路径.jpg", "rb") as f: file_data = f.read()

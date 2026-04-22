@@ -25,6 +25,17 @@ JS 增强代码存储在 `designFormJson.config.expand` 中：
 - `expand.url.js` — 外部 JS 文件 URL（运行时通过 HTTP 加载）
 - 两者可同时使用，内联 JS 先执行，外部 JS 后执行
 
+> **⛔ 易错点（禁止猜测字段名）：** 设计 JSON 中 JS 增强的字段名是 `config.expand.js`，**不是** `config.jsEnhance`、`config.jsCode` 或其他名称。在预处理模式中通过 Python 直接修改设计 JSON 时，必须写：
+> ```python
+> # 正确写法
+> if 'expand' not in design['config']:
+>     design['config']['expand'] = {'js': '', 'css': '', 'url': {'js': '', 'css': ''}}
+> design['config']['expand']['js'] = js_code
+>
+> # 错误写法
+> design['config']['jsEnhance'] = js_code  # ❌ 字段名错误
+> ```
+
 ## 执行时机
 
 JS 增强在表单数据模型（models）初始化完成后执行，即所有字段的默认值已设置完毕。
@@ -168,6 +179,35 @@ api.onChange('field_model', function(value) {
 // 取消监听
 api.offChange('field_model', handler)
 ```
+
+#### 获取当前数据 ID
+
+通过解析 URL 路径获取当前编辑/详情的数据 ID：
+
+```javascript
+// URL 格式：/desform/edit/{formCode}/{dataId} 或 /desform/detail/{formCode}/{dataId}
+function getId() {
+  var match = /\/desform\/(edit|detail)\/.+\/(.+)$/.exec(
+    window.location.pathname
+  );
+  if (match && match.length === 3) {
+    return match[2];
+  }
+  return "";
+}
+
+// 使用示例
+var dataId = getId()
+if (dataId) {
+  console.log('当前数据ID:', dataId)
+  // 可用于调用后端接口
+  api.get('/api/some-endpoint', { id: dataId }).then(res => {
+    // 处理返回数据
+  })
+}
+```
+
+> **注意：** 仅在编辑（edit）和详情（detail）模式下 URL 中包含数据 ID，新增模式下无法获取。
 
 #### 其他
 

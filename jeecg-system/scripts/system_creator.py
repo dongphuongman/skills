@@ -72,15 +72,19 @@ def process_config(config):
             if found_code:
                 results['roles'][name or code] = found_code
 
-    # 处理字典
+    # 处理字典（批量创建）
+    dict_list = []
     for dict_cfg in config.get('dicts', []):
         code = dict_cfg.get('dictCode', '')
         name = dict_cfg.get('dictName', '')
         items = dict_cfg.get('items', [])
         if code:
-            found_code = find_or_create_dict(code, name, items)
-            if found_code:
-                results['dicts'][code] = found_code
+            dict_list.append({'dictCode': code, 'dictName': name, 'items': items})
+
+    if dict_list:
+        batch_result = create_dicts_batch(dict_list)
+        for code in batch_result.get('success', []):
+            results['dicts'][code] = code
 
     # 查询用户（只查不建）
     for user_cfg in config.get('users', []):

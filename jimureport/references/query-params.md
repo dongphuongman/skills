@@ -4,6 +4,39 @@
 
 ---
 
+## 0. paramList 快速速查（最常用）
+
+### SQL 条件表达式
+
+```sql
+SELECT ... FROM t WHERE 1=1
+<#if isNotEmpty(emp_name)> AND emp_name LIKE CONCAT('%','${emp_name}','%')</#if>
+<#if isNotEmpty(hire_date_begin)> AND hire_date >= '${hire_date_begin}'</#if>
+<#if isNotEmpty(hire_date_end)> AND hire_date <= '${hire_date_end}'</#if>
+```
+
+- `isNotEmpty(x)` — JimuReport 自定义函数，null 和 `""` 均返回 false（**必须用此函数，不能用 `?has_content` 或 `??`**）
+- `${param}` — 用户查询参数；`#{sysUserCode}` — 系统变量，两者不可混用
+- 解析字段时用不含 FreeMarker 的纯 SQL（`LIMIT 1`），避免解析失败
+
+### paramList 字段值对照（按控件类型速查）
+
+| 控件 | widgetType | searchMode | searchFormat | dictCode |
+|------|-----------|-----------|--------------|---------|
+| 文本输入框 | `"String"` | `1` | `""` | 空 |
+| 模糊查询输入框 | `"String"` | `5` | `""` | 空 |
+| 日期选择 | `"date"` | `1` | `"yyyy-MM-dd"` | 空 |
+| 日期时间 | `"date"` | `1` | `"yyyy-MM-dd HH:mm:ss"` | 空 |
+| 年月 | `"date"` | `1` | `"yyyy-MM"` | 空 |
+| 日期范围 | `"date"` | `2` | `"yyyy-MM-dd"` | 空 |
+| **下拉单选** | `"String"` | **`4`** | `""` | 字典编码/SQL/API |
+| **下拉多选** | `"String"` | **`3`** | `""` | 字典编码/SQL/API |
+
+> **注意：参数不支持范围查询和模糊查询。**
+> 日期范围须拆成两个独立参数（`_begin` / `_end`）；模糊匹配在 SQL 中手写 `LIKE '%${x}%'`。
+
+---
+
 ## 6. 查询配置
 
 查询条件通过数据集的 `fieldList` 和 `paramList` 中的字段属性配置。
@@ -192,14 +225,14 @@ select * from demo where 1=1
 **三级联动下拉示例：**
 ```javascript
 function init(){
-  $http.metaGet('http://localhost:8080/jeecg-boot/ces/ai/customSelect')
+  $http.metaGet('<backend_url>/ces/ai/customSelect')
     .then(res => { this.updateSelectOptions('pca', 'pro', res.data) })
   this.onSearchFormChange('pca', 'pro', (value) => {
-    $http.metaGet('http://localhost:8080/jeecg-boot/ces/ai/customSelect', {pid: value})
+    $http.metaGet('<backend_url>/ces/ai/customSelect', {pid: value})
       .then(res => { this.updateSelectOptions('pca', 'city', res.data) })
   })
   this.onSearchFormChange('pca', 'city', (value) => {
-    $http.metaGet('http://localhost:8080/jeecg-boot/ces/ai/customSelect', {pid: value})
+    $http.metaGet('<backend_url>/ces/ai/customSelect', {pid: value})
       .then(res => { this.updateSelectOptions('pca', 'area', res.data) })
   })
 }

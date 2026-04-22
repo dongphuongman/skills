@@ -1,194 +1,172 @@
-# 大屏/仪表盘组件类型完整参考
+# 仪表盘组件类型完整参考
 
-## 组件分类总览
-
-共 142+ 组件，分为以下大类：
+> **权威来源**：`data.ts` 中 `export const menuData`（第3行）
+> ⚠️ **不在 menuData 中的组件禁止用于仪表盘，下一个导出 `qqyMenuData` 是敲敲云仪表盘，两者不同。**
 
 ---
 
-## 一、图表组件（ECharts）
+## 仪表盘 menuData 完整组件列表（共66个）
 
-### 柱状图系列
+### 柱状图系列（8个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JBar` | 基础柱状图 | 分类数据对比 |
+| `JStackBar` | 堆叠柱状图 | 部分与整体 |
+| `JDynamicBar` | 动态柱状图 | 动画排名效果 |
 | `JHorizontalBar` | 横向柱状图 | 类目名较长 |
 | `JBackgroundBar` | 背景柱状图 | 带背景色柱状图 |
 | `JMultipleBar` | 分组柱状图 | 多系列对比 |
 | `JNegativeBar` | 正负柱状图 | 正负值对比 |
-| `JStackBar` | 堆叠柱状图 | 部分与整体 |
-| `JDynamicBar` | 动态柱状图 | 动画排名效果 |
-| `JCapsuleChart` | 胶囊柱状图 | 进度/占比展示 |
-| `JPercentBar` | 百分比柱状图 | 占比可视化 |
+| `JMixLineBar` | 柱线混合图 | 不同量级对比 |
 
-### 折线图系列
+### 折线图系列（5个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JLine` | 基础折线图 | 趋势变化 |
 | `JSmoothLine` | 平滑曲线图 | 柔和趋势展示 |
 | `JStepLine` | 阶梯折线图 | 离散变化 |
 | `JMultipleLine` | 多折线图 | 多系列趋势 |
-
-### 混合图系列
-| component | 名称 | 适用场景 |
-|-----------|------|---------|
-| `JMixLineBar` | 柱线混合图 | 不同量级对比 |
 | `DoubleLineBar` | 双轴图 | 双Y轴混合 |
 
-### 饼图/环形图系列
+### 饼图/环形图系列（3个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JPie` | 饼图 | 占比分析 |
-| `JRose` | 玫瑰图 | 带大小的占比 |
+| `JRose` | 南丁格尔玫瑰图 | 带大小的占比 |
 | `JRing` | 环形图 | 占比（中心可放数字） |
-| `JBreakRing` | 断裂环形图 | 特殊视觉效果 |
-| `JRotatePie` | 旋转饼图 | 动态展示 |
-| `JActiveRing` | 活动环形图 | 动画环形 |
 
-### 仪表/进度系列
+### 面积/特殊柱图（2个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
+| `JArea` | 面积图 | 趋势+面积 |
+| `JPictorialBar` | 象形柱状图 | 图标化数据 |
+
+### 进度/完成度（2个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
+| `JCustomProgress` | 自定义进度条 | 自定义样式 |
+| `JProgress` | 进度条 | 完成进度 |
+
+### 仪表盘表盘（2个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JGauge` | 仪表盘 | 完成度/达标率 |
 | `JColorGauge` | 彩色仪表盘 | 多色阈值 |
-| `JAntvGauge` | AntV仪表盘 | G2Plot风格 |
-| `JSemiGauge` | 半圆仪表盘 | 半圆展示 |
-| `JProgress` | 进度条 | 完成进度 |
-| `JCustomProgress` | 自定义进度条 | 自定义样式 |
-| `JListProgress` | 列表进度条 | 多项进度对比 |
-| `JRoundProgress` | 圆形进度 | 圆形完成度 |
-| `JRingProgress` | 环形进度 | 环形完成度 |
-| `JLiquid` | 水球图 | 百分比/液位 |
-| `JRadialBar` | 径向柱状图 | 环形对比 |
 
-### 散点/气泡系列
+### 散点/气泡（2个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JScatter` | 散点图 | 分布/相关性 |
 | `JBubble` | 气泡图 | 三维数据 |
-| `JQuadrant` | 象限图 | 四象限分析 |
-| `JBubbleRank` | 气泡排名 | 排名可视化 |
 
-### 漏斗系列
+### 漏斗系列（2个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JFunnel` | 漏斗图 | 转化分析 |
 | `JPyramidFunnel` | 金字塔漏斗 | 层级占比 |
-| `JPyramid3D` | 3D金字塔 | 立体效果 |
 
-### 雷达/其他
+### 雷达图（2个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JRadar` | 雷达图 | 多维度对比 |
 | `JCircleRadar` | 圆形雷达 | 圆形多维 |
-| `JRectangle` | 矩形树图 | 层级占比 |
-| `JGraphSimple` | 关系图 | 节点关系 |
-| `JWordCloud` | 词云 | 关键词频率 |
-| `JImgWordCloud` | 图片词云 | 图形词云 |
-| `JCustomEchart` | 自定义ECharts | 自定义配置 |
 
-### 地图系列
+### 自定义图表（1个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
-| `JAreaMap` | 区域地图 | 区域数据着色 |
+| `JCustomEchart` | 自定义ECharts | 自定义配置 |
+
+### 地图系列（7个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
 | `JBubbleMap` | 气泡地图 | 地理数据标注 |
 | `JFlyLineMap` | 飞线地图 | 迁徙/物流 |
 | `JBarMap` | 柱状地图 | 地理柱状 |
-| `JHeatMap` | 热力地图 | 密度分布 |
 | `JTotalFlyLineMap` | 多节点飞线 | 多点流动 |
 | `JTotalBarMap` | 多柱状地图 | 多地理柱状 |
-| `JGaoDeMap` | 高德地图 | 实际地图 |
-| `JFly3dMap` | 3D飞线地图 | 3D效果 |
+| `JHeatMap` | 热力地图 | 密度分布 |
+| `JAreaMap` | 区域地图 | 区域数据着色 |
 
-### 3D图表
+### 表格/列表（4个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
-| `JBar3d` | 3D柱状图 | 立体柱状 |
-| `JBarGroup3d` | 3D分组柱状图 | 立体分组 |
-
----
-
-## 二、数据展示组件
-
-### 表格系列
-| component | 名称 | 适用场景 |
-|-----------|------|---------|
-| `JTable` | 数据表格 | 详细数据列表 |
 | `JCommonTable` | 通用表格 | 基础表格 |
-| `JScrollTable` | 滚动表格 | 自动轮播表格 |
+| `JList` | 列表 | 通用列表 |
+| `JCommon` | 通用组件 | 自定义 |
 | `JPivotTable` | 透视表 | 交叉分析 |
 
-### 列表/排行系列
-| component | 名称 | 适用场景 |
-|-----------|------|---------|
-| `JList` | 列表 | 通用列表 |
-| `JScrollBoard` | 滚动看板 | 信息滚动 |
-| `JScrollList` | 滚动列表 | 列表轮播 |
-| `JScrollRankingBoard` | 排行榜 | 排名展示 |
-| `JFlashList` | 闪烁列表 | 动态列表 |
-| `JFlashCloud` | 闪烁云 | 标签云 |
-| `JRankingList` | 排名列表 | 静态排名 |
-| `JDynamicInfo` | 动态信息 | 实时信息流 |
-
----
-
-## 三、数字/统计卡片
-
+### 数字/卡片（6个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JNumber` | 数字指标 | KPI核心指标 |
-| `JCountTo` | 数字翻牌 | 动画计数 |
-| `JCurrentTime` | 实时时钟 | 当前时间 |
-| `JColorBlock` | 色块指标 | 颜色+数字 |
 | `JGrowCard` | 增长卡片 | 增长率指标 |
-| `JSimpleCard` | 简单卡片 | 信息卡片 |
 | `JProjectCard` | 项目卡片 | 项目概览 |
-| `JCustomCard` | 自定义卡片 | 灵活卡片 |
-| `JStatsSummary` | 统计概要 | 多指标汇总 |
+| `JSimpleCard` | 简单卡片 | 信息卡片 |
+| `JWaitMatter` | 待办事项 | 待办列表 |
+| `JDynamicInfo` | 动态信息 | 实时信息流 |
 
----
+### 媒体/内容（8个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
+| `JCarousel` | 轮播 | 图片/内容轮播 |
+| `JIframe` | 内嵌页 | 嵌入外部页面 |
+| `JCalendar` | 日历 | 日历展示 |
+| `JMultiViewCalendar` | 多视图日历 | 多视图日历 |
+| `JImg` | 图片 | 图片展示 |
+| `JText` | 文本 | 标题/说明文字 |
+| `JDragEditor` | 富文本 | TinyMCE编辑器 |
+| `JCurrentTime` | 实时时钟 | 当前时间 |
 
-## 四、交互/容器组件
+### 交互/筛选（5个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
+| `JForm` | 查询表单 | 查询表单 |
+| `JRadioButton` | 单选按钮组 | 筛选切换 |
+| `JFilterQuery` | 筛选查询 | 复合查询 |
+| `JCustomButton` | 自定义按钮 | 操作按钮 |
+| `JQuickNav` | 快捷导航 | 菜单导航 |
 
+### 布局容器（2个）
 | component | 名称 | 适用场景 |
 |-----------|------|---------|
 | `JTabs` | 选项卡 | Tab切换 |
-| `JTabToggle` | 切换选项卡 | 简化Tab |
 | `JGrid` | 栅格布局 | 布局容器 |
-| `JQuickNav` | 快捷导航 | 菜单导航 |
-| `JRadioButton` | 单选按钮组 | 筛选切换 |
-| `JSelectRadio` | 下拉/单选 | 数据筛选 |
-| `JFilterQuery` | 筛选查询 | 复合查询 |
-| `JCustomButton` | 自定义按钮 | 操作按钮 |
-| `JForm` | 表单 | 查询表单 |
-| `JGroup` | 组合 | 组件编组（大屏） |
+
+### 自定义表单（2个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
+| `online` | Online表单 | cgform表单图表 |
+| `design` | 设计器表单 | desform表单图表 |
+
+### 其他（3个）
+| component | 名称 | 适用场景 |
+|-----------|------|---------|
+| `JArchitecture` | 架构图 | 组织架构 |
+| `JVrHourse` | VR房屋 | 3D展示 |
+| `JMap` | 地图 | 自定义地图 |
 
 ---
 
-## 五、媒体组件
+## ⛔ 不在 menuData 中（仪表盘禁用）
 
-| component | 名称 | 适用场景 |
-|-----------|------|---------|
-| `JImg` | 图片 | 图片展示 |
-| `JCarousel` | 轮播 | 图片/内容轮播 |
-| `JVideoPlay` | 视频 | 视频播放 |
-| `JVideoJs` | Video.js | 高级视频 |
-| `JIframe` | 内嵌页 | 嵌入外部页面 |
-| `JWeatherForecast` | 天气 | 天气预报 |
+以下组件**不在 menuData**，在仪表盘中使用会报错或无法渲染，禁止使用：
 
----
-
-## 六、文本/装饰组件
-
-| component | 名称 | 适用场景 |
-|-----------|------|---------|
-| `JText` | 文本 | 标题/说明文字 |
-| `JOrbitRing` | 轨道环 | 科技感装饰 |
-| `JCustomIcon` | 图标 | 自定义图标 |
-| `JDragBorder` | 装饰边框 | 13种边框样式 |
-| `JDragDecoration` | 装饰条 | 12种装饰样式 |
-| `JDragEditor` | 富文本 | TinyMCE编辑器 |
-| `JCalendar` | 日历 | 日历展示 |
-| `JPermanentCalendar` | 静态日历 | 固定日历 |
+| 组件 | 所属 |
+|------|------|
+| `JPyramid3D` | 大屏专属 |
+| `JAntvGauge` `JSemiGauge` `JRoundProgress` `JRingProgress` `JLiquid` `JRadialBar` `JListProgress` | 大屏专属 |
+| `JCapsuleChart` `JPercentBar` | 大屏专属 |
+| `JRectangle` `JGraphSimple` `JWordCloud` `JImgWordCloud` | 大屏专属 |
+| `JBar3d` `JBarGroup3d` | 大屏专属 |
+| `JGaoDeMap` `JFly3dMap` | 大屏专属 |
+| `JScrollTable` `JScrollBoard` `JScrollList` `JScrollRankingBoard` `JFlashList` `JFlashCloud` `JRankingList` | 大屏专属 |
+| `JCountTo` `JColorBlock` `JCustomCard` `JStatsSummary` | 大屏专属 |
+| `JTabToggle` `JSelectRadio` `JGroup` | 大屏专属 |
+| `JDragBorder` `JDragDecoration` `JOrbitRing` `JCustomIcon` `JPermanentCalendar` | 大屏专属 |
+| `JVideoPlay` `JVideoJs` `JWeatherForecast` | 大屏专属 |
+| `JTable` | 大屏专属（仪表盘用 `JCommonTable`） |
+| `JBreakRing` `JRotatePie` `JActiveRing` `JTotalProgress` | qqyMenuData（敲敲云仪表盘）专属 |
+| `JQuadrant` `JBubbleRank` | 大屏专属 |
 
 ---
 

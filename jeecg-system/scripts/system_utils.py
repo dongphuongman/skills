@@ -6,7 +6,7 @@ JeecgBoot 系统主数据工具库
 
 用法:
     from system_utils import *
-    init_api('https://boot3.jeecg.com/jeecgboot', 'your-token')
+    init_api('<api_base>', '<token>')
 
     # 查询
     roles = query_roles()
@@ -39,6 +39,7 @@ except:
 # ====== 全局配置 ======
 _API_BASE = ''
 _TOKEN = ''
+_SIGN_SECRET = 'dd05f1c54d63749eda95f9fa6d49v442a'
 
 
 def init_api(api_base, token):
@@ -371,15 +372,62 @@ def query_dept_positions(dept_id=None):
 
 # ====== 字典 ======
 
+def _compute_dict_sign(dict_code):
+    """
+    根据 JeecgBoot 后端签名规则计算签名。
+    规则: x-path-variable 只在 path 包含逗号时设置 (HttpUtils.getAllParams)
+    sign = MD5({"x-path-variable": dict_code} + secret) 或 MD5({} + secret)
+    """
+    import hashlib
+    if ',' in dict_code:
+        params = {'x-path-variable': dict_code}
+    else:
+        params = {}
+    sorted_params = dict(sorted(params.items()))
+    import json
+    params_json = json.dumps(sorted_params, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.md5((params_json + _SIGN_SECRET).encode('utf-8')).hexdigest().upper()
+
+
 def query_dict(dict_code):
     """
-    查询字典项列表。
+    查询字典项列表（通过 /sys/api/getDictItems 接口）。
     返回: [{'value': '1', 'text': '男'}, {'value': '2', 'text': '女'}]
     """
-    result = _request(f'/sys/dict/getDictItems/{urllib.parse.quote(dict_code)}')
+    result = _request(f'/sys/api/getDictItems?dictCode={urllib.parse.quote(dict_code)}')
+    if isinstance(result, list):
+        return result
     if result.get('success'):
         return result.get('result', [])
     return []
+
+
+def query_sql_table_dict(dict_code):
+    """
+    查询 SQL 表字典项列表（通过 /sys/dict/getDictItems/{dictCode} 接口）。
+    返回: [{'value': '1', 'text': '男'}, {'value': '2', 'text': '女'}]
+    """
+    import time
+    ts_ms = str(int(time.time() * 1000))
+    sign = _compute_dict_sign(dict_code)
+    url = f'{_API_BASE}/sys/dict/getDictItems/{urllib.parse.quote(dict_code)}?_t={ts_ms}'
+    headers = {
+        'X-Access-Token': _TOKEN,
+        'X-Sign': sign,
+        'X-Timestamp': ts_ms
+    }
+    req = urllib.request.Request(url, headers=headers, method='GET')
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        import json
+        result = json.loads(resp.read().decode('utf-8'))
+        if result.get('success'):
+            return result.get('result', [])
+        print(f'[query_sql_table_dict] 查询失败: {result.get("message", "")}')
+        return []
+    except Exception as e:
+        print(f'[query_sql_table_dict] 请求失败: {e}')
+        return []
 
 
 def search_dict(keyword, page_size=50):
@@ -424,6 +472,29 @@ def find_dict(keyword):
     return None
 
 
+# 缓存批量接口是否存在
+_batch_api_available = None
+
+
+def _check_batch_api():
+    """检查批量接口是否存在"""
+    global _batch_api_available
+    if _batch_api_available is not None:
+        return _batch_api_available
+
+    # 发送一个测试请求（带一个有效字典项）
+    test_data = {'dictList': [{'dictCode': '__test_api__', 'dictName': '__test__', 'sysDictItemList': [{'itemText': 'test', 'itemValue': '1', 'sortOrder': 1, 'status': 1}]}]}
+    try:
+        result = _request('/sys/dict/batchAddDictWithItems', data=test_data, method='POST')
+        # 只要不是404或网络异常，就认为接口存在
+        _batch_api_available = True
+    except Exception as e:
+        _batch_api_available = False
+
+    print(f'[字典] 批量接口检查: {"可用" if _batch_api_available else "不可用"}')
+    return _batch_api_available
+
+
 def create_dict(dict_code, dict_name, items, description=''):
     """
     创建字典及字典项。
@@ -465,11 +536,105 @@ def create_dict(dict_code, dict_name, items, description=''):
     return dict_code
 
 
+def create_dicts_batch(dict_list):
+    """
+    批量创建字典及字典项（一次API调用创建多个字典）。
+    dict_list: [{'dictCode': 'code1', 'dictName': '名称1', 'items': [{'value':'1','text':'男'}]}, ...]
+    返回: {'success': [...], 'fail': [...]}
+    """
+    if not dict_list:
+        return {'success': [], 'fail': []}
+
+    # 构建批量数据
+    batch_dicts = []
+    for d in dict_list:
+        dict_code = d.get('dictCode') or d.get('dict_code')
+        dict_name = d.get('dictName') or d.get('dict_name') or dict_code
+        description = d.get('description', f'由AI自动创建: {dict_name}')
+        items = d.get('items', [])
+
+        item_list = []
+        for i, item in enumerate(items):
+            item_list.append({
+                'itemText': item.get('text', item.get('label', '')),
+                'itemValue': str(item.get('value', '')),
+                'sortOrder': i + 1,
+                'status': 1,
+            })
+
+        batch_dicts.append({
+            'dictCode': dict_code,
+            'dictName': dict_name,
+            'description': description,
+            'sysDictItemList': item_list,
+        })
+
+    success_list = []
+    fail_list = []
+
+    # 批量接口不可用，降级逐个创建
+    if not _check_batch_api():
+        print(f'[批量字典] 批量接口不可用，降级逐个处理')
+        for d in dict_list:
+            dict_code = d.get('dictCode') or d.get('dict_code')
+            dict_name = d.get('dictName') or d.get('dict_name') or dict_code
+            items = d.get('items', [])
+            r = create_dict(dict_code, dict_name, items)
+            if r:
+                success_list.append(r)
+            else:
+                fail_list.append(dict_code)
+        return {'success': success_list, 'fail': fail_list}
+
+    batch_data = {'dictList': batch_dicts}
+    result = _request('/sys/dict/batchAddDictWithItems', data=batch_data, method='POST')
+
+    if result.get('success'):
+        return_data = result.get('result', {})
+        success_count = return_data.get('successCount', 0)
+        fail_count = return_data.get('failCount', 0)
+        fail_items = return_data.get('failList', [])
+
+        print(f'[批量字典] 成功 {success_count} 个，失败 {fail_count} 个')
+        for d in dict_list:
+            code = d.get('dictCode') or d.get('dict_code')
+            # 检查是否在失败列表中
+            failed = any(f.get('dictCode') == code for f in fail_items)
+            if failed:
+                fail_list.append(code)
+            else:
+                success_list.append(code)
+                print(f'  [成功] {d.get("dictName")} ({code})')
+        for fail in fail_items:
+            print(f'  [失败] {fail.get("dictName")} ({fail.get("dictCode")}) - {fail.get("errorMsg")}')
+    else:
+        # 批量接口不可用，降级逐个创建
+        print(f'[批量字典] 接口不可用，降级逐个处理: {result.get("message", "")}')
+        for d in dict_list:
+            dict_code = d.get('dictCode') or d.get('dict_code')
+            dict_name = d.get('dictName') or d.get('dict_name') or dict_code
+            items = d.get('items', [])
+            r = create_dict(dict_code, dict_name, items)
+            if r:
+                success_list.append(r)
+            else:
+                fail_list.append(dict_code)
+
+    return {'success': success_list, 'fail': fail_list}
+
+
 def find_or_create_dict(dict_code, dict_name=None, items=None):
     """
-    查找字典，不存在则创建。
+    查找或创建字典。不存在则创建，创建失败再查询是否存在。
     返回 dict_code 字符串。
     """
+    # 先尝试创建（高效路径：创建成功则无需查询）
+    if items:
+        result = create_dict(dict_code, dict_name or dict_code, items)
+        if result:
+            return result
+
+    # 创建失败，查询是否已存在
     found = find_dict(dict_code)
     if found:
         print(f'[字典] 已存在: {found.get("dictName")} ({found.get("dictCode")}), {len(found.get("items", []))} 项')
@@ -482,12 +647,8 @@ def find_or_create_dict(dict_code, dict_name=None, items=None):
             print(f'[字典] 已存在: {found.get("dictName")} ({found.get("dictCode")}), {len(found.get("items", []))} 项')
             return found['dictCode']
 
-    # 创建
-    if items:
-        return create_dict(dict_code, dict_name or dict_code, items)
-    else:
-        print(f'[字典] 未找到 {dict_code}，且未提供字典项，无法创建')
-        return None
+    print(f'[字典] 未找到 {dict_code}，且未提供字典项，无法创建')
+    return None
 
 
 # ====== 便捷打印 ======

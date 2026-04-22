@@ -47,7 +47,6 @@ if _bu_dir:
 def _find_template_dir():
     candidates = [
         os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates', 'bigScreen')),
-        os.path.normpath(r'C:\Users\25067\.claude\skills\jimubi-bigscreen\references\templates\bigScreen'),
     ]
     for d in candidates:
         if os.path.isdir(d):

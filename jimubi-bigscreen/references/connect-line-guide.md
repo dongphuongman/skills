@@ -1,6 +1,5 @@
 # 组件连线配置指南（linesConfig.connectLine）
 
-> 源码位置：`D:\webstorm_project_2023\vue3-jeecg-drag-design-antd4\packages\dragEngine\modal\LineOperateConfig.vue`
 > 文档：https://help.jimureport.com/biScreen/base/interactive/connectLine
 
 ## 重要限制
@@ -70,11 +69,10 @@ interface AuxiliaryLine {
 ## 配置示例（Python 脚本）
 
 ```python
-import sys, json
-sys.path.insert(0, 'C:/Users/25067')
+import json
 import bi_utils
 
-bi_utils.API_BASE = "http://192.168.1.66:8080/jeecg-boot"
+bi_utils.API_BASE = '<api_base>'
 bi_utils.TOKEN = "..."
 PAGE_ID = "..."
 

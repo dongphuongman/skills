@@ -68,6 +68,13 @@ NODE_SIZES = {
     'endEvent':         {'w': 36, 'h': 36},
     'userTask':         {'w': 100, 'h': 80},
     'serviceTask':      {'w': 100, 'h': 80},
+    'aiTask':           {'w': 100, 'h': 80},
+    'apiTask':          {'w': 100, 'h': 80},
+    'signalThrowEvent': {'w': 36,  'h': 36},
+    'signalThrow':      {'w': 36,  'h': 36},
+    'signalCatch':      {'w': 36,  'h': 36},
+    'messageThrow':     {'w': 36,  'h': 36},
+    'messageCatch':     {'w': 36,  'h': 36},
     'scriptTask':       {'w': 100, 'h': 80},
     'exclusiveGateway': {'w': 50, 'h': 50},
     'parallelGateway':  {'w': 50, 'h': 50},
@@ -431,6 +438,11 @@ def gen_user_task(node):
         lines.append('        <flowable:taskListener class="org.jeecg.modules.extbpm.listener.task.TaskSkipApprovalListener" event="create" />')
     if cs_extend_b64:
         lines.append(f'        <flowable:taskCountersignExtendJson value="{cs_extend_b64}" />')
+    cc_config = node.get('ccConfig')
+    if cc_config:
+        import json as _json, base64 as _b64
+        cc_b64 = _b64.b64encode(_json.dumps(cc_config, ensure_ascii=False).encode('utf-8')).decode('utf-8')
+        lines.append(f'        <flowable:ccConfigJson value="{cc_b64}" />')
     lines.append('      </bpmn2:extensionElements>')
     # 手工分支需要 incoming/outgoing 标注
     for fid in node.get('_incoming', []):
@@ -478,6 +490,262 @@ def gen_service_task(node):
             attr += f' flowable:resultVariable="{result_var}"'
 
     return f'    <bpmn2:serviceTask id="{nid}" name="{name}"{attr} />'
+
+
+def gen_ai_service_task(node):
+    """生成 AI 流程编排服务节点（aiTask）XML。
+
+    node 字段：
+      aiFlowId         : AI 流程 ID（必填，从 AIGC 流程管理获取）
+      inputParamsList  : 输入参数映射列表，如 [{"key": "content", "value": "${name}"}]
+      outputParamsList : 输出参数映射列表，如 [{"key": "result", "value": "aiResult"}]
+    """
+    import base64, json as _json
+    nid  = node['id']
+    name = node.get('name', 'AI流程节点')
+    ai_config = {
+        'id': nid,
+        'nodeName': name,
+        'aiFlowId': node.get('aiFlowId', ''),
+        'inputParamsList': node.get('inputParamsList', []),
+        'outputParamsList': node.get('outputParamsList', []),
+    }
+    b64 = base64.b64encode(_json.dumps(ai_config, ensure_ascii=False).encode('utf-8')).decode('ascii')
+    lines = []
+    lines.append(f'    <bpmn2:serviceTask id="{nid}" name="{name}" flowable:class="org.jeecg.modules.extbpm.listener.service.AigcServiceTaskDelegate">')
+    lines.append(f'      <bpmn2:extensionElements>')
+    lines.append(f'        <flowable:aiServiceTaskConfig value="{b64}" />')
+    lines.append(f'      </bpmn2:extensionElements>')
+    lines.append(f'    </bpmn2:serviceTask>')
+    return '\n'.join(lines)
+
+
+def gen_api_service_task(node):
+    """生成 API 服务节点（apiTask）XML。
+
+    node 字段：
+      apiUrl           : 接口地址（必填），如 '/sys/user/list'，支持 ${var} 流程变量
+      method           : HTTP 方法（默认 'GET'），支持 GET/POST/PUT/DELETE
+      headersList      : 请求头列表，如 [{"key": "Content-Type", "value": "application/json"}]
+      inputParamsList  : 请求参数映射，如 [{"key": "pageNo", "value": "1"}, {"key": "name", "value": "${name}"}]
+      outputParamsList : 响应结果映射，支持 JSONPath，如 [{"key": "result.records[0].name", "value": "flowVar"}]
+      timeout          : 超时时间毫秒（默认 30000）
+      retryCount       : 重试次数（默认 3）
+    """
+    import base64, json as _json
+    nid  = node['id']
+    name = node.get('name', 'API节点')
+    api_config = {
+        'id': nid,
+        'nodeName': name,
+        'apiUrl': node.get('apiUrl', ''),
+        'method': node.get('method', 'GET'),
+        'headersList': node.get('headersList', []),
+        'inputParamsList': node.get('inputParamsList', []),
+        'outputParamsList': node.get('outputParamsList', []),
+        'timeout': node.get('timeout', 30000),
+        'retryCount': node.get('retryCount', 3),
+    }
+    b64 = base64.b64encode(_json.dumps(api_config, ensure_ascii=False).encode('utf-8')).decode('ascii')
+    lines = []
+    lines.append(f'    <bpmn2:serviceTask id="{nid}" name="{name}" flowable:class="org.jeecg.modules.extbpm.listener.service.ApiServiceTaskDelegate">')
+    lines.append(f'      <bpmn2:extensionElements>')
+    lines.append(f'        <flowable:apiServiceTaskConfig value="{b64}" />')
+    lines.append(f'      </bpmn2:extensionElements>')
+    lines.append(f'    </bpmn2:serviceTask>')
+    return '\n'.join(lines)
+
+
+def _signal_ref_id(signal_name):
+    """根据信号名称生成信号定义 ID（去除非字母数字字符）。"""
+    import re
+    safe = re.sub(r'[^A-Za-z0-9_]', '_', signal_name)
+    return f'Signal_{safe}'
+
+
+def _message_ref_id(message_name):
+    """根据消息名称生成消息定义 ID。"""
+    import re
+    safe = re.sub(r'[^A-Za-z0-9_]', '_', message_name)
+    return f'Message_{safe}'
+
+
+def gen_signal_throw_event(node):
+    """生成中间抛出信号事件（intermediateThrowEvent）XML。
+
+    node 字段：
+      signalName : 信号名称（必填），与捕获事件保持一致
+    """
+    nid  = node['id']
+    name = node.get('name', '抛出信号')
+    signal_name = node.get('signalName', 'signal')
+    signal_id   = _signal_ref_id(signal_name)
+    def_id = f'SignalEventDefinition_{nid}'
+    lines = []
+    lines.append(f'    <bpmn2:intermediateThrowEvent id="{nid}" name="{xml_escape(name)}">')
+    lines.append(f'      <bpmn2:signalEventDefinition id="{def_id}" flowable:signalRef="{signal_id}" />')
+    lines.append(f'    </bpmn2:intermediateThrowEvent>')
+    return '\n'.join(lines)
+
+
+def gen_signal_catch_event(node):
+    """生成中间捕获信号事件（intermediateCatchEvent + signalEventDefinition）XML。"""
+    nid = node['id']
+    name = node.get('name', '等待信号')
+    signal_name = node.get('signalName', 'signal')
+    signal_id = _signal_ref_id(signal_name)
+    def_id = f'SignalEventDefinition_{nid}'
+    lines = []
+    lines.append(f'    <bpmn2:intermediateCatchEvent id="{nid}" name="{xml_escape(name)}">')
+    lines.append(f'      <bpmn2:signalEventDefinition id="{def_id}" flowable:signalRef="{signal_id}" />')
+    lines.append(f'    </bpmn2:intermediateCatchEvent>')
+    return '\n'.join(lines)
+
+
+def gen_message_throw_event(node):
+    """生成中间抛出消息事件（intermediateThrowEvent + messageEventDefinition）XML。"""
+    nid = node['id']
+    name = node.get('name', '发出消息')
+    message_name = node.get('messageName', 'message')
+    message_id = _message_ref_id(message_name)
+    def_id = f'MessageEventDefinition_{nid}'
+    lines = []
+    lines.append(f'    <bpmn2:intermediateThrowEvent id="{nid}" name="{xml_escape(name)}">')
+    lines.append(f'      <bpmn2:messageEventDefinition id="{def_id}" messageRef="{message_id}" />')
+    lines.append(f'    </bpmn2:intermediateThrowEvent>')
+    return '\n'.join(lines)
+
+
+def gen_message_catch_event(node):
+    """生成中间捕获消息事件（intermediateCatchEvent + messageEventDefinition）XML。"""
+    nid = node['id']
+    name = node.get('name', '等待消息')
+    message_name = node.get('messageName', 'message')
+    message_id = _message_ref_id(message_name)
+    def_id = f'MessageEventDefinition_{nid}'
+    lines = []
+    lines.append(f'    <bpmn2:intermediateCatchEvent id="{nid}" name="{xml_escape(name)}">')
+    lines.append(f'      <bpmn2:messageEventDefinition id="{def_id}" messageRef="{message_id}" />')
+    lines.append(f'    </bpmn2:intermediateCatchEvent>')
+    return '\n'.join(lines)
+
+
+def gen_message_boundary_event(node_id, msg_config, event_id):
+    """生成附加在 userTask 上的消息边界捕获事件 XML。"""
+    name = msg_config.get('name', '消息边界')
+    message_name = msg_config.get('messageName', 'message')
+    message_id = _message_ref_id(message_name)
+    cancel = 'true' if msg_config.get('cancelActivity', True) else 'false'
+    def_id = f'MessageEventDefinition_{event_id}'
+    lines = []
+    lines.append(f'    <bpmn2:boundaryEvent id="{event_id}" name="{xml_escape(name)}" attachedToRef="{node_id}" cancelActivity="{cancel}">')
+    lines.append(f'      <bpmn2:messageEventDefinition id="{def_id}" messageRef="{message_id}" />')
+    lines.append(f'    </bpmn2:boundaryEvent>')
+    return '\n'.join(lines)
+
+
+def gen_message_boundary_shape(event_id, task_pos):
+    """生成消息边界事件 BPMNShape XML（定位在任务节点右下角，与定时器错开）。"""
+    ex = task_pos['x'] + task_pos['w'] / 2 + 12
+    ey = task_pos['y'] + task_pos['h'] - 18
+    return (
+        f'      <bpmndi:BPMNShape id="shape_{event_id}" bpmnElement="{event_id}">\n'
+        f'        <dc:Bounds x="{ex}" y="{ey}" width="36" height="36" />\n'
+        f'      </bpmndi:BPMNShape>'
+    )
+
+
+def gen_intermediate_event_shape(node, pos):
+    """生成中间事件（信号/消息抛出/捕获）的 BPMNShape XML。"""
+    nid = node['id']
+    x, y, w, h = pos['x'], pos['y'], pos['w'], pos['h']
+    lines = [f'      <bpmndi:BPMNShape id="shape_{nid}" bpmnElement="{nid}">']
+    lines.append(f'        <dc:Bounds x="{x}" y="{y}" width="{w}" height="{h}" />')
+    lines.append(f'        <bpmndi:BPMNLabel>')
+    lines.append(f'          <dc:Bounds x="{x + 7}" y="{y + h + 7}" width="22" height="14" />')
+    lines.append(f'        </bpmndi:BPMNLabel>')
+    lines.append(f'      </bpmndi:BPMNShape>')
+    return '\n'.join(lines)
+
+
+def gen_signal_catch_boundary(node_id, signal_config, event_id):
+    """生成附加在 userTask 上的边界捕获信号事件 XML。
+
+    signal_config 字段：
+      signalName : 信号名称（必填），与抛出事件保持一致
+      name       : 边界事件显示名称（默认'捕获信号'）
+      eventId    : 自定义事件ID（默认 signal_{node_id}）
+      target     : 信号触发后流转到的节点ID（可选）
+    """
+    name        = signal_config.get('name', '捕获信号')
+    signal_name = signal_config.get('signalName', 'signal')
+    signal_id   = _signal_ref_id(signal_name)
+    def_id = f'SignalEventDefinition_{event_id}'
+    lines = []
+    lines.append(f'    <bpmn2:boundaryEvent id="{event_id}" name="{xml_escape(name)}" attachedToRef="{node_id}">')
+    lines.append(f'      <bpmn2:signalEventDefinition id="{def_id}" flowable:signalRef="{signal_id}" />')
+    lines.append(f'    </bpmn2:boundaryEvent>')
+    return '\n'.join(lines)
+
+
+def gen_signal_catch_shape(event_id, name, task_pos):
+    """生成边界捕获信号事件的 BPMNShape XML（定位在任务节点左下角，与定时器错开）。"""
+    # 左下角：x = 任务左边 - 12（稍偏左），y = 任务底部 - 18
+    ex = task_pos['x'] - 12
+    ey = task_pos['y'] + task_pos['h'] - 18
+    label_x = ex - 4
+    label_y = ey + 36 + 4
+    lines = []
+    lines.append(f'      <bpmndi:BPMNShape id="shape_{event_id}" bpmnElement="{event_id}">')
+    lines.append(f'        <dc:Bounds x="{ex}" y="{ey}" width="36" height="36" />')
+    lines.append(f'        <bpmndi:BPMNLabel>')
+    lines.append(f'          <dc:Bounds x="{label_x}" y="{label_y}" width="44" height="14" />')
+    lines.append(f'        </bpmndi:BPMNLabel>')
+    lines.append(f'      </bpmndi:BPMNShape>')
+    return '\n'.join(lines)
+
+
+def gen_boundary_timer_event(node_id, timer, event_id):
+    """生成附加在 userTask 上的边界定时器事件 XML。
+
+    timer 字段：
+      type    : 'date' | 'duration' | 'cycle'
+                  date     — 指定日期，value 为 ISO 8601 datetime，如 '2026-04-03T15:00:59'
+                  duration — 等待时长，value 为 ISO 8601 duration，如 'P1D'（1天）、'PT2H'（2小时）
+                  cycle    — 重复周期，value 为 ISO 8601 repeat，如 'R3/PT10H'（每10小时重复3次）
+      value   : 定时器的值（必填）
+      eventId : 边界事件 ID（默认自动生成）
+    """
+    tid_inner = f'TimerEventDefinition_{event_id}'
+    timer_type = timer.get('type', 'duration')
+    value = timer.get('value', 'PT1H')
+
+    if timer_type == 'date':
+        timer_elem = f'        <bpmn2:timeDate>{value}</bpmn2:timeDate>'
+    elif timer_type == 'cycle':
+        timer_elem = f'        <bpmn2:timeCycle>{value}</bpmn2:timeCycle>'
+    else:  # duration（默认）
+        timer_elem = f'        <bpmn2:timeDuration>{value}</bpmn2:timeDuration>'
+
+    lines = []
+    lines.append(f'    <bpmn2:boundaryEvent id="{event_id}" attachedToRef="{node_id}">')
+    lines.append(f'      <bpmn2:timerEventDefinition id="{tid_inner}">')
+    lines.append(timer_elem)
+    lines.append(f'      </bpmn2:timerEventDefinition>')
+    lines.append(f'    </bpmn2:boundaryEvent>')
+    return '\n'.join(lines)
+
+
+def gen_boundary_timer_shape(event_id, task_pos):
+    """生成边界定时器事件的 BPMNShape XML（定位在任务节点右下角）。"""
+    # 右下角：x = 任务中心偏右12，y = 任务底部 - 18（圆心在底边上）
+    ex = task_pos['x'] + task_pos['w'] / 2 + 12
+    ey = task_pos['y'] + task_pos['h'] - 18
+    return (
+        f'      <bpmndi:BPMNShape id="shape_{event_id}" bpmnElement="{event_id}">\n'
+        f'        <dc:Bounds x="{ex}" y="{ey}" width="36" height="36" />\n'
+        f'      </bpmndi:BPMNShape>'
+    )
 
 
 def gen_script_task(node):
@@ -1144,6 +1412,7 @@ def build_bpmn_xml(config):
 
     # 生成节点 XML
     node_xmls = []
+    _unsupported_ids = set()   # 记录跳过的节点ID，后续过滤相关连线
     for node in nodes:
         ntype = node['type']
         if ntype == 'startEvent':
@@ -1154,6 +1423,10 @@ def build_bpmn_xml(config):
             node_xmls.append(gen_user_task(node))
         elif ntype == 'serviceTask':
             node_xmls.append(gen_service_task(node))
+        elif ntype == 'aiTask':
+            node_xmls.append(gen_ai_service_task(node))
+        elif ntype == 'apiTask':
+            node_xmls.append(gen_api_service_task(node))
         elif ntype == 'scriptTask':
             node_xmls.append(gen_script_task(node))
         elif ntype in ('exclusiveGateway', 'parallelGateway', 'inclusiveGateway'):
@@ -1162,26 +1435,85 @@ def build_bpmn_xml(config):
             node_xmls.append(gen_call_activity(node))
         elif ntype == 'subProcess':
             node_xmls.append(gen_sub_process(node, config))
+        elif ntype == 'signalThrow':
+            node_xmls.append(gen_signal_throw_event(node))
+        elif ntype == 'signalCatch':
+            node_xmls.append(gen_signal_catch_event(node))
+        elif ntype == 'messageThrow':
+            node_xmls.append(gen_message_throw_event(node))
+        elif ntype == 'messageCatch':
+            node_xmls.append(gen_message_catch_event(node))
+        else:
+            print(f'  [警告] 不支持的节点类型 "{ntype}"（id={node["id"]}），已跳过，相关连线也将被忽略')
+            _unsupported_ids.add(node['id'])
 
-    # 生成连线 XML
+    # 生成边界定时器事件 XML（附加在带 timer 配置的节点上）
+    boundary_xmls = []
+    boundary_timer_nodes = []  # (node, event_id) — 供后续 shape/edge 使用
+    for node in nodes:
+        timer = node.get('timer')
+        if not timer:
+            continue
+        event_id = timer.get('eventId') or f'timer_{node["id"]}'
+        boundary_xmls.append(gen_boundary_timer_event(node['id'], timer, event_id))
+        boundary_timer_nodes.append((node, event_id, timer))
+
+    # 生成信号边界事件 XML（附加在带 signalBoundary 配置的 userTask 上）
+    boundary_signal_nodes = []  # (node, event_id, signal_config)
+    for node in nodes:
+        sig_cfg = node.get('signalBoundary')
+        if not sig_cfg:
+            continue
+        event_id = sig_cfg.get('eventId') or f'signal_boundary_{node["id"]}'
+        boundary_xmls.append(gen_signal_catch_boundary(node['id'], sig_cfg, event_id))
+        boundary_signal_nodes.append((node, event_id, sig_cfg))
+
+    # 生成消息边界事件 XML（附加在带 messageBoundary 配置的 userTask 上）
+    boundary_message_nodes = []  # (node, event_id, msg_config)
+    for node in nodes:
+        msg_cfg = node.get('messageBoundary')
+        if not msg_cfg:
+            continue
+        event_id = msg_cfg.get('eventId') or f'message_boundary_{node["id"]}'
+        boundary_xmls.append(gen_message_boundary_event(node['id'], msg_cfg, event_id))
+        boundary_message_nodes.append((node, event_id, msg_cfg))
+
+    # 生成连线 XML（跳过涉及不支持节点的连线，避免 IDREF 悬空）
     flow_xmls = []
     for flow in flows:
+        if flow['source'] in _unsupported_ids or flow['target'] in _unsupported_ids:
+            print(f'  [警告] 连线 {flow["id"]} 涉及已跳过的节点，已忽略')
+            continue
         flow_xmls.append(gen_sequence_flow(flow))
+
+    # 生成边界定时器触发后的连线（若配置了 timerTarget）
+    for node, event_id, timer in boundary_timer_nodes:
+        timer_target = timer.get('timerTarget')
+        if timer_target:
+            timer_flow_id = timer.get('timerFlowId') or f'flow_{event_id}'
+            flow_xmls.append(
+                f'    <bpmn2:sequenceFlow id="{timer_flow_id}" sourceRef="{event_id}" targetRef="{timer_target}" />'
+            )
+
+    # 过滤掉不支持的节点，避免 layout/shape 时 KeyError
+    supported_nodes = [n for n in nodes if n['id'] not in _unsupported_ids]
 
     # 计算布局（手工分支使用水平布局，其他使用垂直布局）
     is_manual_branch = '_manualBranch' in config
     if is_manual_branch:
         positions = calc_layout_manual_branch(config)
     else:
-        positions = calc_layout(nodes)
+        positions = calc_layout(supported_nodes)
 
     # 生成图形 XML
     shape_xmls = []
-    for node in nodes:
+    for node in supported_nodes:
         shape_xmls.append(gen_shape_xml(node, positions[node['id']]))
 
     edge_xmls = []
     for flow in flows:
+        if flow['source'] in _unsupported_ids or flow['target'] in _unsupported_ids:
+            continue
         if is_manual_branch:
             edge_xmls.append(gen_edge_xml_manual_branch(flow, positions, config))
         else:
@@ -1232,21 +1564,107 @@ def build_bpmn_xml(config):
                         f'      </bpmndi:BPMNEdge>'
                     )
 
+    # 生成边界定时器事件的 Shape 和 Edge（timerTarget 对应的连线）
+    boundary_shape_xmls = []
+    boundary_edge_xmls = []
+    for node, event_id, timer in boundary_timer_nodes:
+        task_pos = positions[node['id']]
+        boundary_shape_xmls.append(gen_boundary_timer_shape(event_id, task_pos))
+        timer_target = timer.get('timerTarget')
+        if timer_target and timer_target in positions:
+            tgt_pos = positions[timer_target]
+            timer_flow_id = timer.get('timerFlowId') or f'flow_{event_id}'
+            ex = task_pos['x'] + task_pos['w'] / 2 + 12 + 18  # 边界事件右边缘
+            ey = task_pos['y'] + task_pos['h'] - 18 + 18       # 边界事件中心 y
+            boundary_edge_xmls.append(
+                f'      <bpmndi:BPMNEdge id="edge_{timer_flow_id}" bpmnElement="{timer_flow_id}">\n'
+                f'        <di:waypoint x="{ex}" y="{ey}" />\n'
+                f'        <di:waypoint x="{tgt_pos["cx"]}" y="{tgt_pos["y"]}" />\n'
+                f'      </bpmndi:BPMNEdge>'
+            )
+
+    # 生成信号边界事件的 Shape 和 Edge
+    for node, event_id, sig_cfg in boundary_signal_nodes:
+        task_pos = positions[node['id']]
+        boundary_shape_xmls.append(gen_signal_catch_shape(event_id, sig_cfg.get('name', ''), task_pos))
+        target = sig_cfg.get('boundaryTarget')
+        if target and target in positions:
+            tgt_pos = positions[target]
+            flow_id = 'flow_' + event_id
+            ex = task_pos['x'] - 12 + 36
+            ey = task_pos['y'] + task_pos['h'] - 18 + 18
+            flow_xmls.append('    <bpmn2:sequenceFlow id="%s" sourceRef="%s" targetRef="%s" />' % (flow_id, event_id, target))
+            boundary_edge_xmls.append(
+                '      <bpmndi:BPMNEdge id="edge_%s" bpmnElement="%s">\n'
+                '        <di:waypoint x="%s" y="%s" />\n'
+                '        <di:waypoint x="%s" y="%s" />\n'
+                '      </bpmndi:BPMNEdge>' % (flow_id, flow_id, ex, ey, tgt_pos['cx'], tgt_pos['y'])
+            )
+
+    # 生成消息边界事件的 Shape 和 Edge
+    for node, event_id, msg_cfg in boundary_message_nodes:
+        task_pos = positions[node['id']]
+        boundary_shape_xmls.append(gen_message_boundary_shape(event_id, task_pos))
+        target = msg_cfg.get('boundaryTarget')
+        if target and target in positions:
+            tgt_pos = positions[target]
+            flow_id = 'flow_' + event_id
+            ex = task_pos['x'] + task_pos['w'] / 2 + 12 + 36
+            ey = task_pos['y'] + task_pos['h'] - 18 + 18
+            flow_xmls.append('    <bpmn2:sequenceFlow id="%s" sourceRef="%s" targetRef="%s" />' % (flow_id, event_id, target))
+            boundary_edge_xmls.append(
+                '      <bpmndi:BPMNEdge id="edge_%s" bpmnElement="%s">\n'
+                '        <di:waypoint x="%s" y="%s" />\n'
+                '        <di:waypoint x="%s" y="%s" />\n'
+                '      </bpmndi:BPMNEdge>' % (flow_id, flow_id, ex, ey, tgt_pos['cx'], tgt_pos['y'])
+            )
+
+    # 收集所有信号和消息定义（去重），放在 <bpmn2:definitions> 内、<bpmn2:process> 之前
+    signal_names = set()
+    message_names = set()
+    for node in nodes:
+        ntype = node.get('type', '')
+        if ntype in ('signalThrow', 'signalCatch'):
+            sn = node.get('signalName')
+            if sn:
+                signal_names.add(sn)
+        if ntype == 'userTask':
+            sb = node.get('signalBoundary', {})
+            if sb.get('signalName'):
+                signal_names.add(sb['signalName'])
+        if ntype in ('messageThrow', 'messageCatch'):
+            mn = node.get('messageName')
+            if mn:
+                message_names.add(mn)
+        if ntype == 'userTask':
+            mb = node.get('messageBoundary', {})
+            if mb.get('messageName'):
+                message_names.add(mb['messageName'])
+
+    signal_def_lines = [f'  <bpmn2:signal id="{_signal_ref_id(s)}" name="{xml_escape(s)}" />' for s in sorted(signal_names)]
+    message_def_lines = [f'  <bpmn2:message id="{_message_ref_id(m)}" name="{xml_escape(m)}" />' for m in sorted(message_names)]
+    signal_message_defs = '\n'.join(signal_def_lines + message_def_lines)
+
     # 拼装完整 XML
+    all_node_xmls = node_xmls + boundary_xmls
+    all_shape_xmls = shape_xmls + boundary_shape_xmls
+    all_edge_xmls = edge_xmls + boundary_edge_xmls
+
     xml = f'''{BPMN_HEADER}
 
+{signal_message_defs}
   <bpmn2:process id="{process_key}" name="{xml_escape(process_name)}">
 {SUBPROCESS_HQ_LISTENERS if config.get('isCountersignSubProcess') else (SUBPROCESS_LISTENERS if config.get('isSubProcess') else PROCESS_LISTENERS)}
 
-{chr(10).join(node_xmls)}
+{chr(10).join(all_node_xmls)}
 
 {chr(10).join(flow_xmls)}
   </bpmn2:process>
 
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{process_key}">
-{chr(10).join(shape_xmls)}
-{chr(10).join(edge_xmls)}
+{chr(10).join(all_shape_xmls)}
+{chr(10).join(all_edge_xmls)}
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn2:definitions>'''
@@ -1552,6 +1970,51 @@ def get_desform_fields(api_base, token, form_code):
     return fields
 
 
+def get_online_form_fields(api_base, token, table_name):
+    """查询 Online 表单的所有字段，返回 {字段名: {model, key, type}} 映射。
+
+    Args:
+        api_base: JeecgBoot 后端地址
+        token: X-Access-Token
+        table_name: 数据库表名（如 'crm_customer_apply'）
+
+    Returns:
+        dict: {字段名: {model, key, type}}，失败返回 {}
+    """
+    # Step 1: 通过表名查询 headId
+    head_result = api_request(api_base, token,
+                              f'/online/cgform/head/list?tableName={table_name}&pageNo=1&pageSize=10',
+                              method='GET')
+    records = head_result.get('result', {})
+    if isinstance(records, dict):
+        records = records.get('records', [])
+    if not records:
+        return {}
+    head_id = records[0].get('id', '')
+    if not head_id:
+        return {}
+
+    # Step 2: 通过 headId 查询字段列表
+    field_result = api_request(api_base, token,
+                               f'/online/cgform/field/listByHeadId?headId={head_id}',
+                               method='GET')
+    field_list = field_result.get('result', []) or []
+    if isinstance(field_list, dict):
+        field_list = field_list.get('records', [])
+
+    fields = {}
+    skip_fields = {'id', 'create_by', 'create_time', 'update_by', 'update_time', 'sys_org_code'}
+    for f in field_list:
+        db_field = f.get('dbFieldName', '')
+        label = f.get('dbFieldTxt', '') or db_field
+        field_type = f.get('fieldShowType', 'text')
+        if db_field and db_field not in skip_fields:
+            fields[label] = {'model': db_field, 'key': '', 'type': field_type}
+            # 同时建立 model → info 的别名，支持直接用字段名匹配
+            fields[db_field] = {'model': db_field, 'key': '', 'type': field_type}
+    return fields
+
+
 def set_node_field_permissions(api_base, token, process_id, node_code, form_code,
                                field_permissions, form_type='2'):
     """批量设置节点字段权限。
@@ -1561,7 +2024,7 @@ def set_node_field_permissions(api_base, token, process_id, node_code, form_code
         token: X-Access-Token
         process_id: 流程ID
         node_code: 节点编码（如 'task_draft'）
-        form_code: 表单编码（如 'oa_interview_apply'）
+        form_code: 表单编码/表名（DesForm传表单编码，Online传数据库表名）
         field_permissions: 字段权限配置列表，每项格式：
             {
                 "field": "字段名称（中文）或字段model",
@@ -1577,8 +2040,11 @@ def set_node_field_permissions(api_base, token, process_id, node_code, form_code
     Returns:
         dict: {success: bool, updated: int, errors: list}
     """
-    # 查询表单字段映射
-    fields_map = get_desform_fields(api_base, token, form_code)
+    # 根据表单类型查询字段映射
+    if form_type == '1':
+        fields_map = get_online_form_fields(api_base, token, form_code)
+    else:
+        fields_map = get_desform_fields(api_base, token, form_code)
     if not fields_map:
         return {'success': False, 'updated': 0, 'errors': ['无法获取表单字段信息']}
 
@@ -1614,40 +2080,38 @@ def set_node_field_permissions(api_base, token, process_id, node_code, form_code
             continue
 
         model = field_info['model']
-        key = field_info['key']
+        key = field_info.get('key', '')
         label = field_ref if field_ref in fields_map else field_info.get('label', field_ref)
 
+        # Online 表单 ruleCode 格式：online:{表名}:{字段名}；DesForm 直接用 model/key
+        if form_type == '1':
+            rule_code = f'online:{form_code}:{model}'
+            desform_key = None
+        else:
+            rule_code = model
+            desform_key = key
+
+        base_record = {
+            'formType': form_type,
+            'formBizCode': form_code,
+            'processId': process_id,
+            'processNodeCode': node_code,
+            'ruleCode': rule_code,
+            'ruleName': label,
+            'required': 1 if required else 0,
+        }
+        if desform_key is not None:
+            base_record['desformComKey'] = desform_key
+
         # ruleType=1: 可见性
-        batch_data.append({
-            'ruleType': '1',
-            'status': '1' if visible else '0',
-            'formType': form_type,
-            'formBizCode': form_code,
-            'processId': process_id,
-            'processNodeCode': node_code,
-            'ruleCode': model,
-            'ruleName': label,
-            'required': 1 if required else 0,
-            'desformComKey': key,
-        })
+        batch_data.append({**base_record, 'ruleType': '1', 'status': '1' if visible else '0'})
         # ruleType=2: 可编辑性（注意：status 与勾选状态相反，'0'=勾选=可编辑，'1'=未勾选=禁用）
-        batch_data.append({
-            'ruleType': '2',
-            'status': '0' if editable else '1',
-            'formType': form_type,
-            'formBizCode': form_code,
-            'processId': process_id,
-            'processNodeCode': node_code,
-            'ruleCode': model,
-            'ruleName': label,
-            'required': 1 if required else 0,
-            'desformComKey': key,
-        })
+        batch_data.append({**base_record, 'ruleType': '2', 'status': '0' if editable else '1'})
 
     if not batch_data:
         return {'success': False, 'updated': 0, 'errors': errors or ['无有效字段权限配置']}
 
-    # 查询已有权限记录，获取 id 用于更新（避免"规则编码已存在"错误）
+    # 查询已有权限记录，获取 id 和 ruleName 用于更新（避免"规则编码已存在"错误）
     existing_result = api_request(api_base, token,
         f'/act/process/extActProcessNodePermission/list?processId={process_id}'
         f'&processNodeCode={node_code}&pageNo=1&pageSize=200',
@@ -1655,17 +2119,21 @@ def set_node_field_permissions(api_base, token, process_id, node_code, form_code
     existing_records = existing_result.get('result', {})
     if isinstance(existing_records, dict):
         existing_records = existing_records.get('records', [])
-    # 建立 (ruleCode, ruleType) → id 映射
+    # 建立 (ruleCode, ruleType) → 完整记录 映射
     existing_map = {}
     for rec in existing_records:
         key = (rec.get('ruleCode', ''), str(rec.get('ruleType', '')))
-        existing_map[key] = rec.get('id', '')
+        existing_map[key] = rec
 
-    # 合并已有记录的 id
+    # 合并已有记录的 id，并保留原始 ruleName（不得覆盖已有名称）
     for item in batch_data:
         lookup_key = (item['ruleCode'], item['ruleType'])
         if lookup_key in existing_map:
-            item['id'] = existing_map[lookup_key]
+            existing = existing_map[lookup_key]
+            item['id'] = existing.get('id', '')
+            # 保留原 ruleName，防止将中文名覆盖为英文 model
+            if existing.get('ruleName'):
+                item['ruleName'] = existing['ruleName']
 
     result = api_request(api_base, token,
                          '/act/process/extActProcessNodePermission/saveOrUpdateBatch',
@@ -1844,7 +2312,22 @@ def main():
         print(f'\n流程创建失败: {result.get("msg", "")}')
         sys.exit(1)
 
-    process_id = result.get('obj', config.get('processId', ''))
+    process_id = result.get('obj') or config.get('processId', '')
+    # obj=null 说明是更新操作，按 processKey 查询真实 ID
+    if not process_id:
+        process_key = config['processKey']
+        try:
+            import urllib.parse as _up
+            q = _up.urlencode({'pageNo': 1, 'pageSize': 5})
+            qr = api_request(args.api_base, args.token,
+                             f'/act/process/extActProcess/list?{q}', method='GET')
+            for rec in (qr.get('result') or {}).get('records', []):
+                if rec.get('processName') == config['processName']:
+                    process_id = rec.get('id', '')
+                    break
+        except Exception as _e:
+            print(f'  [警告] 查询流程ID失败: {_e}')
+
     print(f'\n{"=" * 50}')
     print(f'流程创建成功')
     print(f'{"=" * 50}')
@@ -1928,6 +2411,14 @@ def main():
             print(f'\n已设置节点表单可编辑: {", ".join(updated_nodes)}')
             if form_addr:
                 print(f'  表单地址: {form_addr}')
+            # 草稿节点配置在发布后修改，必须重新发布才能生效
+            if not args.no_deploy:
+                print(f'\n草稿节点配置已更新，重新发布流程...')
+                redeploy_result = deploy_process(args.api_base, args.token, process_id)
+                if redeploy_result.get('success'):
+                    print(f'  流程重新发布成功')
+                else:
+                    print(f'  流程重新发布失败: {redeploy_result.get("message", "")}')
 
     # 关联表单
     form_config = config.get('formLink')

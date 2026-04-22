@@ -234,7 +234,7 @@ API 数据集的主子表配置方式相同，区别仅在于数据集类型。
 main_db = {
     "dbCode": "gg",
     "dbType": "1",           # API
-    "apiUrl": "http://192.168.1.6:8085/jmreport/test/getOrder?id='${did}'",
+    "apiUrl": "<api_base>/test/getOrder?id='${did}'",
     "apiMethod": "0",        # GET
     "paramList": [
         {"paramName": "did", "paramTxt": "订单ID", "paramValue": "", "widgetType": "String", "orderNum": 1, "searchFlag": 1, "searchMode": 1}
@@ -249,7 +249,7 @@ main_db = {
 sub_db = {
     "dbCode": "xb",
     "dbType": "1",
-    "apiUrl": "http://192.168.1.6:8085/jmreport/test/getUserMsg?did='${did}'",
+    "apiUrl": "<api_base>/test/getUserMsg?did='${did}'",
     "apiMethod": "0",
     # 子表也必须有 paramList！但不勾选查询
     "paramList": [

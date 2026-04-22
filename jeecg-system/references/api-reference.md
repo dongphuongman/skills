@@ -259,7 +259,7 @@
 
 | 方法 | 路径 | 说明 | 参数 |
 |------|------|------|------|
-| GET | `/sys/dict/getDictItems/{dictCode}` | **获取字典选项列表** | Path: `dictCode`; Query: `sign` |
+| GET | `/sys/api/getDictItems?dictCode={dictCode}` | **获取字典选项列表** | Query: `dictCode` |
 | GET | `/sys/dict/getDictText/{dictCode}/{key}` | 获取字典文本值 | Path: `dictCode`, `key` |
 | GET | `/sys/dict/queryAllDictItems` | 获取全部字典数据（Map） | 无参数 |
 | GET | `/sys/dict/loadDict/{dictCode}` | 下拉搜索异步加载 | Path: `dictCode`; Query: `keyword`, `sign`, `pageNo`, `pageSize` |
@@ -310,6 +310,30 @@
 | GET | `/sys/dictItem/dictItemCheck` | 字典值重复校验 | Query: `itemValue`, `dictId`, `id`（可选） |
 
 **SysDictItem 主要字段：** `id`, `dictId`, `itemText`, `itemValue`, `itemColor`, `description`, `sortOrder`, `status`(0禁用/1启用)
+
+
+**Python 请求示例（避免中文乱码）：**
+```python
+import urllib.request
+import json
+
+API = '<api_base>'
+TOKEN = 'your-token'
+
+def request(path, data=None, method='GET'):
+    url = API + path
+    headers = {
+        'X-Access-Token': TOKEN,
+        'Content-Type': 'application/json; charset=utf-8',  # 必须指定 UTF-8
+    }
+    if data:
+        body = json.dumps(data, ensure_ascii=False).encode('utf-8')  # ensure_ascii=False 避免中文乱码
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    else:
+        req = urllib.request.Request(url, headers=headers, method=method)
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+```
 
 ---
 

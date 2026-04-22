@@ -42,7 +42,7 @@ description: Use when user asks to create/edit Online graph charts, data visuali
 | X 轴字段 (xaxisField) | 是 | 从 SQL 推导 | `sex` |
 | Y 轴字段 (yaxisField) | 是 | 从 SQL 推导 | `cout` |
 | 图表类型 (graphType) | 是 | `bar` | `bar`、`line`、`pie`、`line,bar` |
-| 展示模板 (displayTemplate) | 否 | `tab` | `tab`、`single` |
+| 展示模板 (displayTemplate) | 否 | `tab` | `tab`、`single`、`double` |
 | 数据源 (dbSource) | 否 | 空（默认数据源） | `second_db` |
 | 数据类型 (dataType) | 否 | `sql` | `sql` |
 
@@ -56,9 +56,9 @@ description: Use when user asks to create/edit Online graph charts, data visuali
 2. 通过 API 查询现有图表配置（参考 API 列表）
 3. 展示现有配置，根据用户需求进行修改
 
-### Step 2: 调用 parseSql 解析字段
+### Step 2: 解析字段（根据 dataType 选择接口）
 
-**复用报表的 parseSql 接口获取 SQL 的字段列表：**
+#### 2A. SQL 类型 — 复用 parseSql 接口
 
 ```
 GET /online/cgreport/head/parseSql?sql={urlEncodedSql}&dbKey={dbKey}
@@ -73,14 +73,7 @@ GET /online/cgreport/head/parseSql?sql={urlEncodedSql}&dbKey={dbKey}
   "success": true,
   "result": {
     "fields": [
-      {
-        "id": "2033369959277633538",
-        "fieldName": "cout",
-        "fieldTxt": "cout",
-        "fieldType": "String",
-        "isShow": 1,
-        "orderNum": 1
-      }
+      { "fieldName": "cout", "fieldTxt": "cout", "fieldType": "String", "isShow": 1, "orderNum": 1 }
     ],
     "params": []
   }
@@ -88,6 +81,88 @@ GET /online/cgreport/head/parseSql?sql={urlEncodedSql}&dbKey={dbKey}
 ```
 
 > **注意**：parseSql 返回的 `isShow` 是数字 (0/1)，但图表接口需要字符串 `"Y"/"N"`，需要转换。
+
+#### 2B. JSON/API 类型 — 使用 parseField 接口
+
+```
+POST /online/graphreport/head/parseField?type=JSON
+POST /online/graphreport/head/parseField?type=API
+```
+
+请求体（JSON 类型传 JSON 字符串，API 类型传接口 URL）：
+```json
+{ "data": "[{\"month\":\"01\",\"amount\":1000}]" }
+```
+
+**返回结构**（与 parseSql 相同格式）：
+```json
+{
+  "success": true,
+  "result": {
+    "fields": [
+      { "fieldName": "month", "fieldTxt": "month", "fieldType": "String", "isShow": 1 },
+      { "fieldName": "amount", "fieldTxt": "amount", "fieldType": "Integer", "isShow": 1 }
+    ],
+    "params": []
+  }
+}
+```
+
+> JSON/API 类型无需配置 `dbSource`，`cgrSql` 字段存放 JSON 字符串或 API URL。
+
+#### API 数据格式要求
+
+API 接口返回的数据**必须**包裹在 `{"data": [...]}` 结构中，否则图表无法解析：
+
+```json
+// ✓ 正确
+{"data": [{"name": "一月", "value": 120}, {"name": "二月", "value": 200}]}
+
+// ✗ 错误（裸数组，图表无法识别）
+[{"name": "一月", "value": 120}]
+```
+
+#### parseField 失败时的处理
+
+`parseField?type=API` 要求 JeecgBoot 服务端能访问该 URL。若服务端无法访问外网导致失败，**跳过 parseField，手动构造 items**（字段已知时可直接定义）。
+
+#### 使用 YApi Mock 创建 API 数据源
+
+项目内置 YApi Mock 平台（https://api.jeecg.com），可快速创建 mock 接口作为 API 数据源。
+使用 `scripts/yapi_mock.py` 脚本操作，凭证获取规则，**禁止硬编码**：
+
+- 优先从当前上下文（系统提示、memory、全局配置等任意来源）中查找 YApi 邮箱和密码
+- 上下文中找不到时，**必须询问用户**：
+  > 需要使用 YApi Mock 创建数据源，请提供登录邮箱和密码（平台地址：https://api.jeecg.com）。
+
+> `yapi_mock.py` 内部使用 `http.cookiejar.CookieJar + build_opener` 管理会话，兼容 Python 3.6 / 3.9 / 3.12 及以上所有版本，直接调用 `init_yapi(email, password)` 即可。
+
+```python
+import sys
+sys.path.insert(0, '<skill目录>/scripts')
+from yapi_mock import init_yapi, create_mock
+
+# 凭证由 Claude 从 memory 读取后注入，不得硬编码
+init_yapi(email='<email>', password='<password>')
+
+# 创建 mock 接口并写入数据，返回完整 mock URL
+mock_url = create_mock(
+    path='/staff',        # 路径后缀，不含 basepath（/claude）
+    title='职员信息',
+    data=[
+        {"name": "张三", "salary": 18000},
+        {"name": "李四", "salary": 15000},
+    ]
+)
+print(mock_url)  # https://api.jeecg.com/mock/57/claude/staff
+```
+
+**路径规则（重要）**：项目 basepath 为 `/claude`，接口路径只写后缀：
+
+| 传入 path | 完整 mock URL |
+|-----------|--------------|
+| `/staff`  | `https://api.jeecg.com/mock/57/claude/staff` |
+| `/line`   | `https://api.jeecg.com/mock/57/claude/line` |
 
 ### Step 3: 智能字段配置
 
@@ -135,7 +210,7 @@ parseSql 返回的 fieldTxt 默认等于 fieldName，AI 需要根据语义翻译
 | 字段类型 | searchFlag | searchMode |
 |---------|------------|------------|
 | 分类/维度字段 | `"Y"` | `single` |
-| 日期/时间字段 | `"Y"` | `range` |
+| 日期/时间字段 | `"Y"` | `group` |
 | 度量/聚合字段 | `"N"` | null |
 
 #### 3.5 是否合计 (isTotal)
@@ -145,21 +220,44 @@ parseSql 返回的 fieldTxt 默认等于 fieldName，AI 需要根据语义翻译
 | 度量/聚合字段 | `"Y"` |
 | 维度/分类字段 | `"N"` |
 
-#### 3.6 字典配置 (dictCode)
+#### 3.6 字典配置 (dictCode) — 列表数据值替换显示
 
-同报表，支持两种方式：
+**作用**：列表（明细表格区域）中，将数据库存储的原始值替换为可读文本显示。
+
+> 例：性别字段数据库存 `1`/`2`，配置字典后显示为"男"/"女"。
+
+支持两种方式：
 
 **方式一：系统字典编码**
-```
+
+填写系统字典的 `dictCode`，由系统字典表自动解析值 → 文本。
+
+```json
 "dictCode": "sex"
 ```
 
-**方式二：SQL 字典**
-```
-"dictCode": "SELECT id as value, name as text FROM sys_category"
+常用系统字典编码：
+
+| dictCode | 说明 |
+|----------|------|
+| `sex` | 性别（1=男，2=女） |
+| `priority` | 优先级 |
+| `valid_status` | 有效状态 |
+| `yn` | 是/否 |
+
+**方式二：字典 SQL**
+
+在 `dictCode` 处直接写一条 SELECT 语句，动态替换显示值。SQL 必须返回两列：`value`（数据库存的值）和 `text`（展示的文本）。
+
+```json
+"dictCode": "SELECT id as value, name as text FROM sys_category WHERE pid = '1'"
 ```
 
-常用系统字典：`sex`（性别）、`priority`（优先级）、`valid_status`（有效状态）、`yn`（是否）
+```json
+"dictCode": "SELECT code as value, name as text FROM sys_depart ORDER BY depart_order"
+```
+
+> **注意**：字典 SQL 每次渲染都会执行查询，数据量大时建议加 `WHERE` 条件限制范围。
 
 ### Step 4: 图表类型选择
 
@@ -171,8 +269,11 @@ parseSql 返回的 fieldTxt 默认等于 fieldName，AI 需要根据语义翻译
 | 趋势变化（如月度销售） | `line` | 折线图 |
 | 占比分布（如部门比例） | `pie` | 饼图 |
 | 趋势+对比（如月度销售对比） | `line,bar` | 组合图表 |
+| 纯数据明细 | `table` | 数据表格（只渲染在底部明细区，不占图表位） |
 
-**组合图表配置：**
+**graphType 支持逗号分隔多种类型**，如 `"bar,pie"` 会同时生成柱状图和饼图两个区域。
+
+**组合图表配置（折线+柱状同坐标系）：**
 - `graphType`: `"line,bar"`（逗号分隔多种类型）
 - `isCombination`: `"combination"`（标记为组合图表）
 - 非组合图表 `isCombination` 为 null 或不传
@@ -208,9 +309,35 @@ select count(*) cout, sex from sys_user group by sex
 确认以上配置？(y/n)
 ```
 
-### Step 6: 调用 API 创建/编辑图表
+### Step 6: 校验编码可用性（仅新增时）
 
-用户确认后执行。
+用户确认后，**新增图表前必须先校验 code 是否已被占用**：
+
+```
+GET /sys/duplicate/check?tableName=onl_graphreport_head&fieldName=code&fieldVal={code}
+```
+
+**返回结构：**
+```json
+{ "success": true, "result": true }   // true = 可用（未重复）
+{ "success": true, "result": false }  // false = 已存在，需换一个 code
+```
+
+若 `result` 为 `false`，提示用户更换编码，不继续执行创建。
+
+Python 示例：
+```python
+encoded_code = urllib.parse.quote(report_code)
+check = api_request(f'/sys/duplicate/check?tableName=onl_graphreport_head&fieldName=code&fieldVal={encoded_code}')
+if not check.get('result'):
+    print(f'图表编码 "{report_code}" 已存在，请换一个编码')
+    exit(1)
+print(f'编码 "{report_code}" 可用，继续创建...')
+```
+
+### Step 7: 调用 API 创建/编辑图表
+
+用户确认且编码校验通过后执行。
 
 #### 6.1 新增图表 — 请求结构
 
@@ -330,7 +457,54 @@ select count(*) cout, sex from sys_user group by sex
 2. **禁止使用 `python3 -c "..."` 内联方式**
 3. **必须先用 Write 工具写入 `.py` 临时文件，再用 Bash 执行，最后删除临时文件**
 
-**完整 Python 脚本模板：**
+**推荐方式：使用 `onlchart_api.py` 封装脚本（与 jeecg-onlreport 的 onlreport_api.py 同模式）**
+
+**脚本路径：** skill 加载时开头已提供 `Base directory for this skill: <skill_base_dir>`，scripts 目录即 `<skill_base_dir>\scripts`。
+
+```python
+import sys
+sys.path.insert(0, r'<skill_base_dir>\scripts')
+from onlchart_api import init_api, build_item, build_param, create_chart
+
+init_api('<api_base>', '<token>')
+
+items = [
+    build_item('sex',    '性别',  search_flag='Y', search_mode='single', dict_code='sex', order_num=0),
+    build_item('cout',   '人数',  is_total='Y', order_num=1),
+]
+
+# 默认只创建图表，不挂菜单、不授权
+# 如需发布，改用 create_and_publish() 或单独调用 publish_chart()
+result = create_chart(
+    code='tj_user_sex',
+    name='用户性别分布',
+    sql='SELECT sex, count(*) cout FROM sys_user GROUP BY sex',
+    x='sex', y='cout',
+    graph_type='bar',
+    items=items,
+)
+```
+
+**可用函数一览：**
+
+| 函数 | 说明 |
+|------|------|
+| `init_api(api_base, token)` | 初始化连接（必须最先调用） |
+| `build_item(field_name, ...)` | 构建字段配置 |
+| `build_param(param_name, ...)` | 构建自定义参数 |
+| `parse_sql(sql, db_key)` | 解析 SQL 字段 |
+| `check_code_available(code)` | 校验编码是否可用 |
+| `create_chart(code, name, sql, x, y, items, ...)` | 创建图表 |
+| `edit_chart(head_id, ...)` | 编辑图表 |
+| `publish_chart(head_id, name, role_code)` | 挂载菜单 + 授权角色 |
+| `create_and_publish(code, name, sql, x, y, items, ...)` | **一键全流程** |
+| `list_charts()` | 查询图表列表 |
+| `query_chart(head_id)` | 查询图表详情 |
+| `get_chart_id_by_code(code)` | 按编码查 head_id |
+
+---
+
+**低级手写脚本模板（不推荐，优先使用上方封装）：**
 
 ```python
 import urllib.request
@@ -470,12 +644,17 @@ graph_data = {
 result = api_request('/online/graphreport/head/edit', graph_data, method='PUT')
 ```
 
-### Step 7: 生成菜单 SQL（可选）
+### Step 8: 生成菜单 SQL（可选）
+
+> **默认不创建菜单、不授权。** 只有用户明确说「挂菜单」「授权」「发布」时才执行此步骤。
 
 图表创建成功后，可生成菜单 SQL：
 
+> **重要**：菜单 URL 使用图表的 **head_id**，不是 code。
+> 路由格式：`/online/graphreport/chart/{head_id}`
+
 ```python
-# 查询刚创建的图表
+# 查询刚创建的图表，获取 head_id
 list_result = api_request(f'/online/graphreport/head/list?code={urllib.parse.quote(report_code)}')
 if list_result.get('success') and list_result['result']['records']:
     head_id = list_result['result']['records'][0]['id']
@@ -490,8 +669,8 @@ INSERT INTO sys_permission (
   perms_type, sort_no, menu_type, route_redirect
 ) VALUES (
   '{head_id}', NULL, '{report_name}',
-  '/online/graphreport/{head_id}',
-  'modules/online/graphreport/auto/OnlGraphreportAutoMain',
+  '/online/graphreport/chart/{head_id}',
+  'super/online/graphreport/auto/GraphreportAutoChart',
   NULL,
   1, 1, 0, 0, 0, NULL,
   0, 0, '1', 0,
@@ -500,7 +679,7 @@ INSERT INTO sys_permission (
 """)
 ```
 
-### Step 8: 输出结果
+### Step 9: 输出结果
 
 **本地环境自动执行菜单 SQL 规则：**
 如果 API_BASE 以 `http://127.0.0.1` 或 `http://localhost` 开头（不区分大小写），在生成菜单 SQL 后，自动通过 Bash 工具执行 MySQL 命令插入菜单：
@@ -563,12 +742,159 @@ INSERT INTO sys_permission (...) VALUES (...);
 }
 ```
 
-### 扩展 JS (extendJs)
+### JS 增强 (extendJs)
 
-通过自定义 JS 扩展图表行为：
-```json
-{
-    "extendJs": "option.tooltip = {trigger: 'axis'};"
+#### 全局变量
+
+| 变量 | 说明 |
+|------|------|
+| `headId` | 当前图表的 ID |
+| `onClick` | 用于添加点击事件的全局对象 |
+
+#### 添加点击事件
+
+通过 `onClick.图表类型 = function(event) {}` 的方式挂载，**不同图表类型分别定义**：
+
+```javascript
+// 柱状图点击
+onClick.bar = function(event) {
+    this.$message.success('点击了柱状图！')
+}
+
+// 折线图点击
+onClick.line = function(event) {
+    this.$message.info('点击了折线图！')
+}
+
+// 饼图点击
+onClick.pie = function(event) {
+    this.$message.info('点击了饼图！')
+}
+```
+
+#### `this` 上下文（可用 API）
+
+extendJs 中函数体的 `this` 指向一个固定对象（源码 `onClickThis`），包含以下可用属性：
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `this.$message` | Ant Design Message | **轻提示**（顶部小条，自动消失） |
+| `this.$confirm` | Modal confirm | **确认对话框**（需传入 options 对象） |
+| `this.$info` | Modal.info | **信息对话框** |
+| `this.$success` | Modal.success | **成功对话框** |
+| `this.$error` | Modal.error | **错误对话框** |
+| `this.$warning` | Modal.warning | **警告对话框** |
+| `this.$router` | Vue Router | **路由跳转** |
+| `this.$http` | defHttp (Axios) | **HTTP 请求** |
+
+**`$message` — 轻提示（最常用）：**
+```javascript
+this.$message.success('操作成功')   // 绿色
+this.$message.info('提示信息')      // 蓝色
+this.$message.warning('注意！')     // 黄色
+this.$message.error('发生错误')     // 红色
+this.$message.loading('加载中...')  // 转圈
+```
+
+**`$confirm` / `$info` / `$success` / `$error` / `$warning` — 模态对话框：**
+```javascript
+// $confirm：带确认/取消按钮的对话框
+this.$confirm({
+    iconType: 'warning',
+    title: '确认操作',
+    content: '职业：' + event.name + '，确认查看详情？',
+    onOk: () => {
+        this.$router.push('/detail?occupation=' + event.name)
+    },
+    onCancel: () => {}
+})
+
+// $info / $success / $error / $warning：纯展示对话框（只有关闭按钮）
+this.$success({ title: '成功', content: '数值：' + event.value })
+this.$info({ title: '信息', content: event.name + ' 的平均薪资：' + event.value })
+```
+
+**`$router` — 路由跳转：**
+```javascript
+// 跳转到系统内部页面
+this.$router.push('/system/user')
+// 带参数跳转
+this.$router.push({ path: '/online/cgreport/xxx', query: { occupation: event.name } })
+```
+
+**`$http` — HTTP 请求（defHttp，Axios 封装）：**
+```javascript
+onClick.bar = function(event) {
+    var self = this  // 保存 this 引用，供回调中使用
+    self.$message.loading('查询中...')
+    self.$http.get({
+        url: '/sys/user/list',
+        params: { occupation: event.name }
+    }).then(function(res) {
+        self.$message.success('查到 ' + res.total + ' 条记录')
+    })
+}
+```
+
+> ⚠️ **注意**：`$http` 回调（`.then`/`.catch`）中 `this` 已不是 `onClickThis`，必须提前用 `var self = this` 保存引用，或改用箭头函数。
+
+#### 事件参数 (event)
+
+> Online 图表底层使用 **ECharts**，`event` 是标准 ECharts 事件对象（不是自定义对象）。
+> 直接打印 `event` 会看到 `[object Object]`，需要读取具体属性。
+
+**通用参数（柱状图 / 折线图 / 饼图均有）：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `event.name` | string | **X 轴类目值**（柱/线）或**扇区名称**（饼） |
+| `event.value` | number | **Y 轴数值**（柱/线）或**扇区数值**（饼） |
+| `event.seriesName` | string | 系列名称（Y 轴字段的 fieldTxt） |
+| `event.seriesType` | string | 系列类型：`'bar'`、`'line'`、`'pie'` |
+| `event.dataIndex` | number | 数据在数组中的索引（从 0 开始） |
+| `event.color` | string | 当前元素颜色（十六进制） |
+
+**饼图额外参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `event.percent` | number | ECharts 自动计算的百分比（如 `66.7`），可直接使用 |
+
+```javascript
+onClick.bar = function(event) {
+    // event.name = X轴类目，event.value = Y轴值，event.seriesName = 系列名
+    this.$message.info('X轴: ' + event.name + '，值: ' + event.value)
+}
+```
+
+```javascript
+onClick.line = function(event) {
+    // ECharts 折线图：只有点击数据点才触发，点击连接线不触发事件
+    this.$router.push('/detail?name=' + event.name)
+}
+```
+
+```javascript
+onClick.pie = function(event) {
+    // event.name = 扇区名称（字典翻译后的文本，如"男"/"女"）
+    // event.percent = ECharts 自动计算的百分比
+    this.$message.info(
+        '点击了：' + event.name
+        + '，值：' + event.value
+        + '，占比：' + event.percent.toFixed(1) + '%'
+    )
+}
+```
+
+**组合图（line,bar）区分系列：**
+
+```javascript
+// 组合图注册两个事件，通过 event.seriesName 区分点击的是哪条系列
+onClick.bar = function(event) {
+    this.$message.success('[柱] ' + event.name + '：' + event.value)
+}
+onClick.line = function(event) {
+    this.$message.info('[线] ' + event.name + '：' + event.value)
 }
 ```
 
@@ -576,23 +902,100 @@ INSERT INTO sys_permission (...) VALUES (...);
 
 用于自定义渲染模板或说明内容。
 
-### SQL 参数化查询
+### AIGC — AI 自动生成图表
 
-同报表，支持 Velocity 模板语法的参数：
+系统内置 AI 生成能力，可基于已有的 Online 表单（cgform）表，通过自然语言描述需求自动生成图表配置：
 
+```
+POST /online/graphreport/head/api/aigc?cgformTableName={表名}&prompt={需求描述}
+```
+
+- `cgformTableName`：Online 表单的数据库表名（如 `oa_leave`）
+- `prompt`：用自然语言描述图表需求（如 "统计各部门请假次数"）
+- 超时建议设为 60000ms
+
+**返回结构：**
+```json
+{
+  "success": true,
+  "result": {
+    "code": "dept_leave_count",
+    "name": "各部门请假次数",
+    "cgrSql": "SELECT dept, COUNT(*) as cnt FROM oa_leave GROUP BY dept",
+    "graphType": "bar",
+    "xaxisField": "dept",
+    "yaxisField": "cnt",
+    "displayTemplate": "tab",
+    "onlGraphreportItemList": [...]
+  }
+}
+```
+
+AIGC 返回的配置可直接作为 add 接口的请求体使用，通常无需修改即可创建。
+
+### 参数化查询
+
+图表支持两种参数语法，注意区分：
+
+#### 自定义参数：`${参数名}`
+
+在 SQL 中用 `${}` 拼接 WHERE 条件，`{}` 内的文本就是参数名，需与 paramsList 中配置的 `paramName` **完全一致**。
+
+**文本类型参数必须加引号：**
 ```sql
-SELECT count(*) cout, dept FROM sys_user
-WHERE 1=1
-${#if($status != '')} AND status = '$status' ${#end}
+-- 文本字段加引号
+SELECT count(*) cnt, dept FROM sys_user
+WHERE status = '${status}' AND dept = '${dept}'
 GROUP BY dept
+
+-- 数字字段不加引号
+SELECT * FROM order WHERE amount > ${min_amount}
 ```
 
 对应的 paramsList 配置：
 ```json
 [
-    {"paramName": "status", "paramTxt": "状态", "paramValue": "", "orderNum": 1}
+    {"paramName": "status",     "paramTxt": "状态",   "paramValue": "1",  "orderNum": 1},
+    {"paramName": "dept",       "paramTxt": "部门",   "paramValue": "",   "orderNum": 2},
+    {"paramName": "min_amount", "paramTxt": "最低金额", "paramValue": "0", "orderNum": 3}
 ]
 ```
+
+**使用方式：**
+- URL 传参：`/online/graphreport/chart/{head_id}?status=1&dept=研发部`
+- 菜单配置时直接在 URL 上设置固定值
+- 未传参则使用 `paramValue` 中配置的默认值
+
+#### 系统变量：`#{变量名}`
+
+系统变量用 `#{}` 语法（**不是** `${}`），由系统自动注入当前登录用户信息，无需配置到 paramsList：
+
+```sql
+SELECT * FROM sys_user
+WHERE org_code = '#{sys_org_code}'
+  AND create_by = '#{sys_user_code}'
+  AND create_time >= '#{sys_date}'
+```
+
+**可用系统变量：**
+
+| 变量名 | 说明 | 版本要求 |
+|--------|------|---------|
+| `sys_user_code` | 当前登录用户账号 | - |
+| `sys_user_name` | 当前登录用户真实姓名 | - |
+| `sys_date` | 当前系统日期 | - |
+| `sys_time` | 当前系统时间 | - |
+| `sys_org_code` | 当前登录用户部门编号 | - |
+| `tenant_id` | 当前登录用户租户 ID | v3.4.5+ |
+| `sys_base_path` | Java 服务 basePath（仅 API 模式支持） | v2.4.4+ |
+
+> **混用示例**（自定义参数 + 系统变量）：
+> ```sql
+> SELECT dept, count(*) cnt FROM sys_user
+> WHERE org_code = '#{sys_org_code}'
+>   AND status = '${status}'
+> GROUP BY dept
+> ```
 
 ### 动态数据源
 
@@ -609,11 +1012,21 @@ GROUP BY dept
 
 | 操作 | 方法 | 路径 | 说明 |
 |------|------|------|------|
-| SQL 解析 | GET | `/online/cgreport/head/parseSql?sql={encodedSql}&dbKey={dbKey}` | 复用报表接口 |
+| SQL 解析（复用报表） | GET | `/online/cgreport/head/parseSql?sql={encodedSql}&dbKey={dbKey}` | SQL 类型字段解析 |
+| JSON/API 字段解析 | POST | `/online/graphreport/head/parseField?type=JSON\|API` | JSON 或 API URL 字段解析 |
+| 编码重复校验 | GET | `/sys/duplicate/check?tableName=onl_graphreport_head&fieldName=code&fieldVal={code}` | result=true 可用，false 已存在 |
 | 新增图表 | POST | `/online/graphreport/head/add` | 创建图表 |
 | 编辑图表 | PUT | `/online/graphreport/head/edit` | 修改图表 |
-| 查询列表 | GET | `/online/graphreport/head/list?code={code}` | 查询图表列表 |
-| 查询详情 | GET | `/online/graphreport/head/queryById?id={headId}` | 按ID查询 |
+| 查询列表 | GET | `/online/graphreport/head/list?code={code}` | 查询图表列表（分页） |
+| 查询详情 | GET | `/online/graphreport/head/queryById?id={headId}` | 按 ID 查询图表头 |
+| 查询字段列表 | GET | `/online/graphreport/head/queryOnlGraphreportItemByMainId?headId={headId}` | 查询图表关联字段 |
+| 删除单个 | DELETE | `/online/graphreport/head/delete?id={id}` | 删除图表 |
+| 批量删除 | DELETE | `/online/graphreport/head/deleteBatch?ids={id1,id2}` | 批量删除 |
+| 获取图表数据 | GET | `/online/graphreport/api/getChartsData?id={id}&params={json}` | 图表展示时拉取渲染数据 |
+| 获取参数配置 | GET | `/online/graphreport/params/listByHeadId?headId={id}` | 图表展示时拉取参数列表 |
+| AI 生成图表 | POST | `/online/graphreport/head/api/aigc?cgformTableName={表名}&prompt={需求}` | AIGC 自动生成配置，超时 60s |
+| 导出 Excel | GET | `/online/graphreport/head/exportXls` | 导出图表配置 |
+| 导入 Excel | POST | `/online/graphreport/head/importExcel` | 导入图表配置 |
 
 ---
 
@@ -629,13 +1042,56 @@ GROUP BY dept
 
 ---
 
+## 常见问题
+
+### Q1：Y 轴数据错乱 / 图表显示异常
+
+**现象**：柱状图或折线图的 Y 轴数值顺序混乱，或显示不正确。
+
+**原因**：Y 轴字段的 `fieldType` 不是数值类型。parseSql 默认将所有字段解析为 `String`，渲染时按字符串排序（如 `"10" < "9"`），导致显示错乱。
+
+**解决方案**：将 Y 轴字段的 `fieldType` 改为对应的数值类型：
+
+| 字段值特征 | 应设置的 fieldType |
+|-----------|-------------------|
+| 整数（count、人数、数量） | `Integer` |
+| 小数 / 金额 / 均值 | `BigDecimal` |
+| 长整数 | `Long` |
+
+**示例**：
+
+```python
+# 错误：Y 轴字段 fieldType 是 String，图表会乱序
+build_item('monthly_salary', '月薪', field_type='String', ...)
+
+# 正确：数值字段必须用数值类型
+build_item('monthly_salary', '月薪', field_type='BigDecimal', ...)
+build_item('cnt',            '数量', field_type='Integer',    ...)
+build_item('avg_age',        '平均年龄', field_type='BigDecimal', ...)
+```
+
+> **注意**：`build_item()` 默认 `field_type='String'`，对 Y 轴数值字段必须手动指定正确类型。
+
+---
+
+### Q2：YApi Mock 创建后续请求报「请登录」
+
+**现象**：`init_yapi()` 调用成功，但紧接着的 `create_mock()` 报「请登录...」。
+
+**原因**：旧版 `init_yapi()` 用 `resp.headers.get('Set-Cookie')` 手动解析响应头，Python 3.12 下该方法只返回第一个 Set-Cookie 值，YApi 登录需要 `_yapi_token` 和 `_yapi_uid` 两个 cookie，手动解析会丢失其中一个。
+
+**解决方案**：`yapi_mock.py` 已重构为 `CookieJar + build_opener` 方式，由标准库自动处理所有 Set-Cookie 响应头，直接调用 `init_yapi(email, password)` 即可，无需任何额外处理。兼容 Python 3.6 / 3.9 / 3.12 及以上版本。
+
+---
+
 ## 错误处理
 
 | 错误 | 解决方案 |
 |------|---------|
 | Token 过期（401/认证失败） | 提示用户重新获取 X-Access-Token |
-| `图表编码已存在` | 换一个 code 或使用 edit 编辑 |
+| `图表编码已存在` / duplicate check 返回 false | 换一个 code 或使用 edit 编辑 |
 | parseSql 失败 | 检查 SQL 语法是否正确，表是否存在 |
+| Y 轴数据错乱 | Y 轴字段 fieldType 必须为数值类型（Integer/BigDecimal/Long），不能是 String |
 | `SQL注入风险` | 不要在 SQL 中使用 DROP/DELETE/UPDATE 等危险语句 |
 | 中文乱码 | 确认使用 Python urllib（不要用 curl） |
 
@@ -817,3 +1273,26 @@ PUT /online/graphreport/head/edit
 3. edit 时查询字段用 `searchFlag`（`"Y"/"N"`），add 时用 `isSearch`
 4. 组合图表需同时设置 `graphType: "line,bar"` 和 `isCombination: "combination"`
 5. edit 时需传回 `tenantId`、`createTime`、`createBy` 等系统字段原值
+
+
+### 实测 3：API 类型图表 + YApi Mock 联合创建（2026-04-16 验证通过）
+
+**测试场景**：创建「人物信息图表」，数据来源为 YApi Mock API，图表类型为 `bar,table`（柱状图 + 数据列表）
+
+**完整流程**：
+1. 调用 `init_yapi(email, password)` 登录 YApi（CookieJar 方式，所有 Python 版本通用）
+2. 调用 `create_mock('/person_info', '人物信息', [...])` 创建 mock 接口，返回 mock URL
+3. 调用 `create_chart(... data_type='api', sql=mock_url ...)` 创建图表
+
+**关键配置**：
+- `dataType`: `api`
+- `cgrSql`: 填 mock URL（`https://api.jeecg.com/mock/57/claude/person_info`）
+- `graphType`: `bar,table`（同时输出柱状图和数据列表）
+- mock 数据格式必须包装为 `{"data": [...]}`，`yapi_mock.py` 的 `create_mock()` 已自动处理
+
+**关键发现**：
+1. `yapi_mock.py` 的 `init_yapi()` 已改为 CookieJar 方式，无需在调用脚本中自建 opener，直接 `from yapi_mock import init_yapi, create_mock` 即可
+2. API 类型图表中 `cgrSql` 字段存放的是 API URL，不是 SQL 语句
+3. `graphType: "bar,table"` 可同时展示图表区和数据列表区，满足「既要图又要表」的需求
+4. `parseField?type=API` 可跳过——字段已知时直接用 `build_item()` 手动构建 items，同样有效
+5. 凭证绝不能硬编码到脚本，从当前上下文中查找，找不到则询问用户，再以参数形式传入

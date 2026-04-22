@@ -214,7 +214,7 @@ def upload_image(session, file_path):
 
 def _parse_db_cfg():
     """从环境变量或默认值获取 DB 配置。"""
-    return {"host": os.environ.get("DB_HOST", "192.168.1.6"),
+    return {"host": os.environ.get("DB_HOST", "<db_host>"),
             "port": int(os.environ.get("DB_PORT", "3306")),
             "user": os.environ.get("DB_USER", "root"),
             "password": os.environ.get("DB_PASS", "root"),
@@ -223,7 +223,7 @@ def _parse_db_cfg():
 
 def main():
     p = argparse.ArgumentParser(description="积木报表工具")
-    p.add_argument("--base-url", default=os.environ.get("JMREPORT_URL", "http://192.168.1.6:8085/jmreport"))
+    p.add_argument("--base-url", default=os.environ.get("JMREPORT_URL", "<api_base>"))
     p.add_argument("--token", default=os.environ.get("JMREPORT_TOKEN", ""))
     sub = p.add_subparsers(dest="cmd")
 

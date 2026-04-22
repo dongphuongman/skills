@@ -30,7 +30,8 @@ description: JeecgBoot 系统主数据查询与管理。Use when user asks to qu
 | 用户 | `query_users()` / `find_user()` | — | — |
 | 部门 | `query_depts()` / `find_dept()` | — | — |
 | 岗位 | `query_dept_positions()` | — | — |
-| 字典 | `query_dict()` / `search_dict()` / `find_dict()` | `create_dict()` | `find_or_create_dict()` |
+| 字典（普通） | `query_dict()` / `search_dict()` / `find_dict()` | `create_dict()` | `find_or_create_dict()` |
+| 字典（SQL表） | `query_sql_table_dict()` | — | — |
 
 ## 使用方式
 
@@ -45,7 +46,7 @@ description: JeecgBoot 系统主数据查询与管理。Use when user asks to qu
 
 ```bash
 SCRIPT="<skill目录>/jeecg-system/scripts/system_creator.py"
-API="https://boot3.jeecg.com/jeecgboot"
+API="<api_base>"
 TOKEN="eyJ..."
 
 # 查询角色列表
@@ -146,7 +147,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'jeecg-system',
 # 或直接用绝对路径: sys.path.insert(0, r'<skill目录>/jeecg-system/scripts')
 from system_utils import *
 
-init_api('https://boot3.jeecg.com/jeecgboot', 'your-token')
+init_api('<api_base>', '<token>')
 
 # ====== 角色 ======
 # 查询所有角色
@@ -175,8 +176,10 @@ dept = find_dept('研发部')
 positions = query_dept_positions()
 
 # ====== 字典 ======
-# 查询字典项（按编码）
+# 查询字典项（普通字典，通过 /sys/api/getDictItems）
 items = query_dict('sex')  # → [{'value': '1', 'text': '男'}, ...]
+# 查询 SQL 表字典项（通过 /sys/dict/getDictItems/{dictCode}，需签名）
+items_sql = query_sql_table_dict("sys_user,realname,id,username!='admin' order by create_time")
 # 搜索字典（按名称/编码模糊匹配）
 dicts = search_dict('请假')
 # 查找字典（含字典项）
@@ -217,20 +220,25 @@ print_dicts('请假')     # 搜索并打印字典列表
 
 ### 在其他 skill 脚本中使用
 
-其他 skill 的脚本可以直接导入 `system_utils`：
+其他 skill 的脚本可以直接导入 `system_utils`（需先加载 jeecg-system skill，从 `Base directory for this skill: <skill_base_dir>` 取得路径）：
 
 ```python
 import sys
-sys.path.insert(0, r'G:\idea_cache\.claude\skills\jeecg-system\scripts')
-from system_utils import init_api, find_or_create_role, find_or_create_dict, query_dict
+sys.path.insert(0, r'<skill_base_dir>\scripts')
+from system_utils import init_api, find_or_create_role, find_or_create_dict, query_dict, query_sql_table_dict
 
 init_api(API_BASE, TOKEN)
 
 # 流程设计时查询角色编码
 role_code = find_or_create_role('部门经理', 'dept_manager')
 
-# 表单设计时查询字典
+# 表单设计时查询普通字典
 items = query_dict('sex')
+
+# 查询 SQL 表字典（带签名）
+items_sql = query_sql_table_dict("sys_user,realname,id,username!='admin' order by create_time")
+
+# 创建字典
 dict_code = find_or_create_dict('leave_type', '请假类型', [
     {'value': '1', 'text': '事假'},
     {'value': '2', 'text': '病假'},
@@ -319,7 +327,8 @@ if dept:
 | `/sys/sysDepart/queryDepartAndPostTreeSync` | GET | 部门+岗位树 | `query_dept_positions()` |
 | `/sys/dict/list` | GET | 字典列表（分页） | `search_dict()` |
 | `/sys/dict/add` | POST | 创建字典 | `create_dict()` |
-| `/sys/dict/getDictItems/{dictCode}` | GET | 查询字典项 | `query_dict()` |
+| `/sys/api/getDictItems?dictCode=` | GET | 查询字典项（普通字典） | `query_dict()` |
+| `/sys/dict/getDictItems/{dictCode}` | GET | 查询 SQL 表字典项（需签名） | `query_sql_table_dict()` |
 | `/sys/dictItem/add` | POST | 创建字典项 | `create_dict()` 内部调用 |
 
 ### 常用查询接口（尚未封装，可直接调 `_request()`）
@@ -371,6 +380,6 @@ if dept:
 
 **QuartzJob:** `id`, `jobClassName`, `cronExpression`, `parameter`, `description`, `status`(0停用/-1删除/1运行)
 
-## 前端API
+## 源码位置
 
-各模块下的 `*.api.ts` 文件（如 `user/user.api.ts`, `role/role.api.ts`）
+- 前端API：各模块下的 `*.api.ts` 文件（如 `user/user.api.ts`, `role/role.api.ts`）

@@ -67,7 +67,7 @@
 | `defaultLoadLargeControls` | boolean | false | 是否默认加载大控件 |
 | `expand` | object | — | JS/CSS 增强：`{js, css, url: {js, css}}` |
 | `transactional` | boolean | true | 是否启用事务 |
-| `customRequestURL` | array | [{"url":""}] | 自定义请求URL |
+| `customRequestURL` | array | [{"url":""}] | 自定义接收URL（数组但**只支持1个**，多配无效；详见 `desform-custom-receive-url.md`） |
 | `disableMobileCss` | boolean | true | 移动端是否禁用自定义 CSS |
 | `allowExternalLink` | boolean | false | 是否允许外部链接访问 |
 | `externalLinkShowData` | boolean | false | 外部链接是否展示数据 |
@@ -265,7 +265,7 @@ def gen_model(widget_type):
 ```json
 {
   "defaultValue": {
-    "type": "compose",     // compose(静态+组合) | function(函数) | javascript(自定义JS) | linkage(关联查询) | none(无)
+    "type": "compose",     // compose(静态+组合) | function(函数) | javascript(自定义JS) | linkage(关联查询)
     "value": "",           // 默认值内容
     "format": "string",    // string | number | boolean
     "allowFunc": true,     // 是否允许在默认值中使用函数

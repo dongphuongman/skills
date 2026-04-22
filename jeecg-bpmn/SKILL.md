@@ -7,6 +7,14 @@ description: Use when user asks to create/generate a BPM workflow, design a Flow
 
 将自然语言的流程描述转换为 Flowable BPMN 2.0 XML，并通过 API 在 JeecgBoot 系统中自动创建流程。
 
+## 介绍组件时的完整性要求
+
+> **重要：** 当用户要求介绍流程设计器各组件时，必须包含以下内容，不可遗漏：
+>
+> 1. **会签节点**：串行/并行两种模式；全部通过/一人通过/半数通过/按比例/自定义 5种通过规则；指定人员/角色/审批角色/部门/岗位/职级/表单字段/流程变量 8种审批人类型
+> 2. **条件表达式**：系统内置流程变量（`result`、`applyUserId`、`applyDate` 等）；13种条件运算符；多条件组合用法（AND/OR）
+> 3. **监听器**：执行监听器/任务监听器/全局事件监听器三种类型；系统预置监听器（ProcessEndListener必需、TaskSkipApprovalListener、TaskCreatedAutoSubmitListener等）；taskExtendJson 节点行为控制字段说明
+
 ## 前置条件
 
 用户必须提供以下信息（或由 AI 引导确认）：
@@ -16,6 +24,11 @@ description: Use when user asks to create/generate a BPM workflow, design a Flow
 
 如果用户未提供，提示：
 > 请提供 JeecgBoot 后端地址和 X-Access-Token（从浏览器 F12 → Network → 任意请求的 Request Headers 中复制）。
+
+## 后端项目路径（本地环境）
+
+> 当需要自动创建 Java 类时，从记忆中读取后端项目路径。若记忆中无此信息，询问用户：
+> "请提供后端项目根目录路径（如 D:\path\to\jeecg-boot-framework），用于自动创建 Java 服务类。"
 
 ## 主数据复用规则
 
@@ -43,6 +56,9 @@ description: Use when user asks to create/generate a BPM workflow, design a Flow
 - 用户说"用代码生成创建审批"、"代码生成一个XXX审批单"、"生成代码并配置流程"
 - 用户明确选择 `formType=3`（自定义开发表单）作为流程关联表单
 - 用户描述中同时包含"建表/CRUD/代码生成" + "审批/流程/BPM"
+- 代码生成完成后，用户紧接着要求创建流程
+
+> **重要（用户明确规则）：** 代码生成完成后直接进入流程创建，**跳过 Step 2 的流程摘要确认**，无需再次展示摘要等待用户确认，直接执行角色查询、BPMN 配置生成和 API 调用。用户在代码生成阶段已完成整体确认，流程创建是连续操作，中间的二次确认是多余的打断。
 
 **联合创建流程（必须按顺序执行）：**
 
@@ -105,7 +121,16 @@ modelAndViewMobile: ""
 | **调用子流程/主子流程** | **调用子流程** | **`callActivity`** — 详见 `references/bpmn-call-activity.md` |
 | 会签子流程 | 调用子流程+多实例 | `callActivity` + `multiInstance` |
 | **Java服务/表达式执行/调用Bean** | **Java 服务节点** | **`serviceTask`** — `bpmn_creator.py` 原生支持，见下方「serviceTask 配置」 |
+| **AI流程编排/AIGC调用** | **AI 服务节点** | **`aiTask`** — `bpmn_creator.py` 原生支持，见下方「aiTask 配置」 |
+| **调用外部HTTP接口** | **API 服务节点** | **`apiTask`** — `bpmn_creator.py` 原生支持，见下方「apiTask 配置」 |
+| **节点超时/定时触发** | **边界定时器事件** | **`timer`** 字段附加在 `userTask` 上 — `bpmn_creator.py` 原生支持，见下方「timer 边界定时器」 |
 | **脚本节点/执行脚本/Groovy/JS脚本** | **脚本节点** | **`scriptTask`** — `bpmn_creator.py` 原生支持，见下方「scriptTask 配置」 |
+| **等待信号/捕获信号/接收广播** | **信号捕获事件** | **`signalCatch`** — 中断等待匹配信号，见下方「信号与消息事件配置」 |
+| **发出信号/广播信号/抛出信号** | **信号抛出事件** | **`signalThrow`** — 向所有订阅者广播信号，见下方「信号与消息事件配置」 |
+| **任务上挂信号/信号边界** | **信号边界事件** | **`signalBoundary`** 字段附加在 `userTask` 上，见下方「信号与消息事件配置」 |
+| **等待消息/捕获消息/接收消息** | **消息捕获事件** | **`messageCatch`** — 中断等待唯一消息，见下方「信号与消息事件配置」 |
+| **发出消息/抛出消息/调用外部系统** | **消息抛出事件** | **`messageThrow`** — 发送内部消息或调用外部接口，见下方「信号与消息事件配置」 |
+| **任务上挂消息/消息边界** | **消息边界事件** | **`messageBoundary`** 字段附加在 `userTask` 上，见下方「信号与消息事件配置」 |
 
 > **手工分支 vs 条件分支：** 条件分支使用 `exclusiveGateway` + 条件表达式自动判断走哪条线；手工分支（也叫意见分支）不使用网关，而是从一个 userTask 直接引出多条无条件的 sequenceFlow，用户在审批时手动选择走哪条线，线的名称显示为选项。详见 `references/bpmn-manual-branch.md`。
 >
@@ -185,6 +210,409 @@ modelAndViewMobile: ""
 
 ---
 
+### serviceTask 自动创建 Java 类（用户未提供类名/表达式时）
+
+> **触发条件：** 用户要配置 serviceTask 但没有提供 `className`、`expression` 或 `delegateExpr` 时，**必须按以下步骤自动创建 Java 类**，不能使用占位符或留空。
+
+#### 自动创建流程
+
+**Step A：确定后端项目路径**
+
+从记忆（MEMORY.md）读取后端项目路径。如无记忆，询问用户并保存到记忆。
+
+**Step B：查找 servicetask 包路径**
+
+在后端项目中查找已有的 servicetask 包（包含 `JavaDelegate` 实现类的目录）：
+
+```
+Glob: **/servicetask/*.java  →  提取包名和目录路径
+```
+
+如未找到，在 BPM 模块（含 `joa-flowable` 或 `bpm-flowable` 关键字的模块）下创建 `servicetask` 包。
+
+参考包结构（来自本地项目实测）：
+```
+jeecg-boot-module-joa-flowable
+  └─ src/main/java/org/jeecg/modules/servicetask/
+       ├─ TestDelegateExpression.java   ← 参考模板
+       └─ TestClass.java
+```
+
+**Step C：根据流程 processKey 推导类名**
+
+类名规则：将 processKey 转为大驼峰 + `ServiceTask` 后缀。
+
+| processKey | 推导类名 |
+|-----------|---------|
+| `oa_doc_countersign_process` | `OaDocCountersignProcessServiceTask` |
+| `leave_apply` | `LeaveApplyServiceTask` |
+| `contract_approval` | `ContractApprovalServiceTask` |
+
+Spring Bean 名（委托表达式）：类名首字母小写，如 `${oaDocCountersignProcessServiceTask}`。
+
+**Step D：创建 Java 类文件**
+
+使用 Write 工具在 Step B 确定的目录下创建类文件：
+
+```java
+package org.jeecg.modules.servicetask;
+
+import lombok.extern.slf4j.Slf4j;
+import org.flowable.engine.delegate.DelegateExecution;
+import org.flowable.engine.delegate.JavaDelegate;
+import org.springframework.stereotype.Component;
+
+/**
+ * {流程中文名} - {节点名称}服务节点
+ * 流程编码：{processKey}
+ */
+@Slf4j
+@Component
+public class {ClassName} implements JavaDelegate {
+
+    @Override
+    public void execute(DelegateExecution execution) {
+        String processInstanceId = execution.getProcessInstanceId();
+        String businessKey = execution.getProcessInstanceBusinessKey();
+        log.info("======== {ClassName} 执行 ========= processInstanceId={}, businessKey={}",
+                processInstanceId, businessKey);
+        // TODO: 在此处添加业务逻辑
+    }
+}
+```
+
+**Step E：配置 serviceTask JSON**
+
+类创建后，自动填入 serviceTask 配置：
+
+```json
+{
+  "id": "svc_{processKey_short}",
+  "type": "serviceTask",
+  "name": "{节点名称}",
+  "serviceType": "delegateExpression",
+  "delegateExpr": "${beanName}"
+}
+```
+
+**Step F：告知用户**
+
+流程创建完成后，告知用户已自动创建的类：
+
+```
+已自动创建 Java 服务类：
+  路径：{完整文件路径}
+  类名：{ClassName}
+  Bean：{beanName}
+  委托表达式：${beanName}
+
+请在 execute() 方法中填写您的业务逻辑。
+```
+
+---
+
+### aiTask 配置（AI 流程编排节点）
+
+`bpmn_creator.py` 原生支持 `aiTask`，对应 JeecgBoot AIGC 流程编排服务任务。底层是 `serviceTask` + `AigcServiceTaskDelegate`，直接在 nodes 数组中配置即可。
+
+**JSON 节点配置：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 节点唯一ID |
+| `type` | 是 | 固定为 `aiTask` |
+| `name` | 是 | 节点名称 |
+| `aiFlowId` | 是 | AIGC 流程 ID（从系统 AIGC 流程管理页面获取） |
+| `inputParamsList` | 否 | 输入参数映射，将流程变量传入 AI 流程，如 `[{"key": "content", "value": "${name}"}]` |
+| `outputParamsList` | 否 | 输出参数映射，将 AI 流程输出存入流程变量，如 `[{"key": "result", "value": "aiResult"}]` |
+
+**示例：**
+
+```json
+{
+  "id": "task_ai",
+  "type": "aiTask",
+  "name": "AI内容生成",
+  "aiFlowId": "2034580389262573569",
+  "inputParamsList": [
+    {"key": "content", "value": "${userName}"}
+  ],
+  "outputParamsList": [
+    {"key": "summary", "value": "aiSummary"}
+  ]
+}
+```
+
+> **生成的 XML 结构：** `serviceTask` + `flowable:class="org.jeecg.modules.extbpm.listener.service.AigcServiceTaskDelegate"` + 扩展元素 `<flowable:aiServiceTaskConfig value="{base64编码的配置JSON}" />`
+>
+> **注意：** `aiTask` 与 `serviceTask` 一样不需要配置审批人，由引擎自动调用 AI 流程后流转到下一节点。`aiFlowId` 从系统「AIGC > 流程编排」管理页面获取。
+
+---
+
+### timer 边界定时器（附加在 userTask 上）
+
+在任意 `userTask` 节点中添加 `timer` 字段，即可附加边界定时器事件。定时器触发时节点被中断，可路由到其他节点（如超时直接结束）。
+
+**`timer` 字段说明：**
+
+| 字段 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `type` | 是 | `duration` | `date`=指定日期 / `duration`=等待时长 / `cycle`=重复周期 |
+| `value` | 是 | — | 定时器值，支持 ISO 8601 / cron 表达式 / `${var}` 流程变量 |
+| `timerTarget` | 否 | — | 定时器触发后流转到的节点ID（不填则只附加定时器，不添加出线） |
+| `eventId` | 否 | `timer_{nodeId}` | 边界事件ID，默认自动生成 |
+| `timerFlowId` | 否 | `flow_{eventId}` | 超时连线ID，默认自动生成 |
+
+**三种类型详细说明：**
+
+**① `date` — 指定日期（一次性）**
+
+到达指定时间点触发，格式：`yyyy-MM-ddTHH:mm:ss`
+
+```
+2026-04-03T15:00:59
+```
+
+**② `duration` — 等待时长**
+
+节点激活后等待指定时长触发，使用 ISO 8601 Duration 格式，**支持 `${var}` 表达式**：
+
+| 示例值 | 含义 |
+|--------|------|
+| `PT1M` | 1分钟后 |
+| `PT10M` | 10分钟后 |
+| `PT1H` | 1小时后 |
+| `P1D` | 1天后 |
+| `P1W` | 1周后 |
+| `P1M` | 1个月后 |
+| `P1Y2M10DT2H30M` | 1年2月10天2小时30分后 |
+| `${duration}` | 从流程变量中取值 |
+
+> ISO 8601 格式：`P[年Y][月M][日D]T[时H][分M][秒S]`，`T` 是日期和时间的分隔标记，无年月日时 `T` 不能省略（如 `PT1H` 而不是 `P1H`）
+
+**③ `cycle` — 重复周期**
+
+支持两种格式：
+
+**格式一：ISO 8601 重复格式（推荐）**
+
+```
+R{次数}/{开始时间}/{间隔}   完整格式
+R{次数}/{间隔}             省略开始时间
+```
+
+| 示例值 | 含义 |
+|--------|------|
+| `R3/PT10H` | 每隔10小时重复3次 |
+| `R/PT1H` | 每小时无限重复（R 不带数字=无限） |
+| `R3/2026-04-03T15:00:00/P1D` | 从指定时间开始，每天重复3次 |
+| `${cronExpr}` | 从流程变量中取值 |
+
+**格式二：Cron 表达式**
+
+```
+0 0/5 * * * ?      每5分钟执行一次（从整点开始）
+0 0 12 * * ?       每天12点执行
+0 0/30 9-18 * * ?  工作时间每30分钟执行
+```
+
+**示例配置：**
+
+```json
+// 等待1天超时跳转结束
+{
+  "timer": {"type": "duration", "value": "P1D", "timerTarget": "end"}
+}
+
+// 从流程变量取超时时间
+{
+  "timer": {"type": "duration", "value": "${approvalTimeout}", "timerTarget": "end"}
+}
+
+// 每5分钟催办一次，共3次
+{
+  "timer": {"type": "cycle", "value": "R3/PT5M"}
+}
+
+// 每5分钟执行（cron格式）
+{
+  "timer": {"type": "cycle", "value": "0 0/5 * * * ?"}
+}
+
+// 指定日期截止
+{
+  "timer": {"type": "date", "value": "2026-12-31T23:59:59", "timerTarget": "end"}
+}
+```
+
+> **边界事件自动定位**在任务节点右下角（符合 BPMN 设计器规范）。
+> `timerTarget` 可以指向任何已存在的节点ID，通常为结束节点或专门的超时处理节点。
+
+---
+
+### apiTask 配置（API 服务节点）
+
+`bpmn_creator.py` 原生支持 `apiTask`，用于在流程中调用内部或外部 HTTP 接口。底层是 `serviceTask` + `ApiServiceTaskDelegate`。
+
+**JSON 节点配置：**
+
+| 字段 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | 是 | — | 节点唯一ID |
+| `type` | 是 | — | 固定为 `apiTask` |
+| `name` | 是 | — | 节点名称 |
+| `apiUrl` | 是 | — | 接口路径，如 `/sys/user/list`，支持 `${var}` 引用流程变量 |
+| `method` | 否 | `GET` | HTTP 方法：`GET` / `POST` / `PUT` / `DELETE` |
+| `headersList` | 否 | `[]` | 请求头列表，如 `[{"key": "Content-Type", "value": "application/json"}]` |
+| `inputParamsList` | 否 | `[]` | 请求参数，支持流程变量，如 `[{"key": "name", "value": "${contactName}"}]` |
+| `outputParamsList` | 否 | `[]` | 响应结果映射到流程变量，支持 JSONPath，如 `[{"key": "result.records[0].id", "value": "userId"}]` |
+| `timeout` | 否 | `30000` | 超时时间（毫秒） |
+| `retryCount` | 否 | `3` | 失败重试次数 |
+
+**示例：**
+
+```json
+{
+  "id": "task_api",
+  "type": "apiTask",
+  "name": "查询会议室",
+  "apiUrl": "/eoa/meeting/eoaMeetingRoom/list",
+  "method": "GET",
+  "inputParamsList": [
+    {"key": "pageNo", "value": "1"},
+    {"key": "pageSize", "value": "10"},
+    {"key": "name", "value": "${roomName}"}
+  ],
+  "outputParamsList": [
+    {"key": "result.records[0].name", "value": "firstRoomName"}
+  ],
+  "timeout": 30000,
+  "retryCount": 3
+}
+```
+
+> **`outputParamsList` 的 `key`** 使用 JSONPath 语法引用响应体字段（如 `result.records[0].name`），`value` 是存入流程变量的名称，后续节点可通过 `${firstRoomName}` 引用。
+>
+> **注意：** `apiTask` 与 `serviceTask` 一样不需要配置审批人，由引擎自动执行后流转。
+
+---
+
+### apiTask 自动创建 API 接口（用户未提供 apiUrl 时）
+
+> **触发条件：** 用户要配置 apiTask 但没有提供 `apiUrl` 时，**必须按以下步骤自动创建后端 Controller 接口**，不能使用占位符或留空。
+
+#### 自动创建流程
+
+**Step A：确定后端项目路径**
+
+从记忆（MEMORY.md）读取后端项目路径。如无记忆，询问用户并保存到记忆。
+
+**Step B：查找业务相关的 Controller**
+
+在后端项目中按流程的业务模块查找已有 Controller：
+
+```
+Glob: **/controller/**/*Controller.java  →  找到同业务模块的 Controller
+```
+
+优先顺序：
+1. 与流程 processKey 同名/同业务的 Controller（如 `oa_doc_countersign_process` → 找 `*DocCountersign*Controller.java`）
+2. 同包下其他业务 Controller（如 `/joa/controller/`）作为**新建参考模板**
+
+**Step C：推导接口路径与方法名**
+
+根据流程 processKey 和节点名称推导：
+
+| 要素 | 规则 | 示例 |
+|------|------|------|
+| Controller 类名 | 业务名大驼峰 + `Controller` | `JoaDocCountersignController` |
+| 包路径 | 与同模块已有 Controller 同包 | `org.jeecg.modules.joa.controller` |
+| RequestMapping | `/joa/{camelCase业务名}` | `/joa/joaDocCountersign` |
+| 方法名 | 根据节点名称推导（`afterSubmit`/`notify`/`callback` 等） | `afterSubmit` |
+| 请求方法 | 有副作用操作用 `POST`，纯查询用 `GET` | `POST` |
+| 接口路径 | `/{RequestMapping}/{方法名}` | `/joa/joaDocCountersign/afterSubmit` |
+
+**Step D：判断创建还是追加**
+
+- 如果目标 Controller **已存在** → 在文件末尾的 `}` 前追加新方法（用 Edit 工具）
+- 如果目标 Controller **不存在** → 用 Write 工具新建 Controller 文件
+
+**新建 Controller 模板：**
+
+```java
+package {package};
+
+import lombok.extern.slf4j.Slf4j;
+import org.jeecg.common.api.vo.Result;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * {业务中文名} - 流程服务接口
+ * 流程编码：{processKey}
+ */
+@Slf4j
+@RestController
+@RequestMapping("{requestMapping}")
+public class {ClassName} {
+
+    /**
+     * {节点名称}回调接口（流程 apiTask 节点调用）
+     *
+     * @param businessKey       业务主键（流程变量 ${businessKey}）
+     * @param processInstanceId 流程实例ID（流程变量 ${processInstanceId}）
+     */
+    @PostMapping("{methodPath}")
+    public Result<?> {methodName}(
+            @RequestParam(required = false) String businessKey,
+            @RequestParam(required = false) String processInstanceId) {
+        log.info("===== {ClassName} {methodName} ===== businessKey={}, processInstanceId={}",
+                businessKey, processInstanceId);
+        // TODO: 在此处添加业务逻辑
+        return Result.OK("处理成功");
+    }
+}
+```
+
+**Step E：配置 apiTask JSON**
+
+接口创建后，自动填入 apiTask 配置：
+
+```json
+{
+  "id": "api_{processKey_short}",
+  "type": "apiTask",
+  "name": "{节点名称}",
+  "apiUrl": "{接口路径}",
+  "method": "POST",
+  "inputParamsList": [
+    {"key": "businessKey",       "value": "${businessKey}"},
+    {"key": "processInstanceId", "value": "${processInstanceId}"}
+  ],
+  "outputParamsList": [],
+  "timeout": 30000,
+  "retryCount": 3
+}
+```
+
+**Step F：告知用户**
+
+流程创建完成后，告知用户已自动创建的接口：
+
+```
+已自动创建 API 接口：
+  文件路径：{完整文件路径}
+  接口地址：POST {apiUrl}
+  Controller：{完整类名}#{methodName}
+  入参：businessKey（业务主键）、processInstanceId（流程实例ID）
+
+请在方法体中填写您的业务逻辑。
+```
+
+---
+
 ### scriptTask 配置（脚本节点）
 
 `bpmn_creator.py` 原生支持 `scriptTask`，直接在 nodes 数组中配置即可。
@@ -223,6 +651,205 @@ modelAndViewMobile: ""
 > **支持的脚本语言：** `javascript`（JDK 内置，最常用）、`groovy`（需引入依赖）、`juel`（UEL 表达式语言）
 >
 > **注意：** scriptTask 与 serviceTask 一样不需要配置审批人，由引擎自动执行后流转。
+
+---
+
+### 信号与消息事件配置
+
+#### 信号事件（Signal Event）概述
+
+信号是**广播**机制，同一信号可以有**多个订阅者**，所有匹配的订阅者都会被触发。信号被捕获后**不会被消耗**。
+
+| 事件类型 | XML 元素 | 触发方式 | 说明 |
+|---------|---------|---------|------|
+| 信号捕获事件 | `intermediateCatchEvent` + `signalEventDefinition` | 引擎自动（等待匹配信号） | 流程暂停等待信号 |
+| 信号抛出事件 | `intermediateThrowEvent` + `signalEventDefinition` | 引擎自动（执行到节点即广播） | 发出信号后继续流转 |
+| 信号边界事件 | `boundaryEvent` + `signalEventDefinition` | 引擎自动（等待附属任务期间） | 附加在 userTask 上 |
+
+**信号 vs 消息的关键区别：**
+
+| 特性 | 信号（Signal） | 消息（Message） |
+|------|--------------|----------------|
+| 订阅者 | **多个**（广播） | **唯一一个** |
+| 消耗 | 捕获后**不消耗**，所有订阅者都收到 | 消耗后只有一个订阅者处理 |
+| 作用范围 | **全局**（可跨流程实例） | 通过关联规则确定唯一订阅者 |
+| 匹配规则 | 可选（匹配规则不同则忽略） | **必选**（`消息名 + 捕获规则` 全局唯一） |
+
+#### 信号捕获事件（Signal Intermediate Catching Event）
+
+执行到此节点时暂停，等待流程内的抛出信号事件或 API 发出匹配信号后继续。
+
+**JSON 节点配置：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 节点唯一ID |
+| `type` | 是 | 固定为 `signalCatch` |
+| `name` | 是 | 节点名称 |
+| `signalName` | 是 | 要订阅的信号名（与抛出事件/API 保持一致） |
+| `matchRule` | 否 | 可选匹配规则，如 `vip`；信号名相同但规则不匹配则忽略 |
+
+**JSON 示例：**
+```json
+{
+  "id": "signal_catch_1",
+  "type": "signalCatch",
+  "name": "等待CRM订单信号",
+  "signalName": "CRM-Order",
+  "matchRule": "vip"
+}
+```
+
+> **注意：** 信号捕获事件由引擎自动触发，不需要额外调用 API。
+
+#### 信号抛出事件（Signal Intermediate Throwing Event）
+
+执行到此节点时，向系统内部广播一个信号，所有匹配的订阅者（信号捕获事件、信号边界事件）都会被触发，之后流程继续。
+
+**JSON 节点配置：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 节点唯一ID |
+| `type` | 是 | 固定为 `signalThrow` |
+| `name` | 是 | 节点名称 |
+| `signalName` | 是 | 要发出的信号名 |
+| `matchRule` | 否 | 可选匹配规则；订阅者规则不同则不处理 |
+
+**JSON 示例：**
+```json
+{
+  "id": "signal_throw_1",
+  "type": "signalThrow",
+  "name": "发出审批完成信号",
+  "signalName": "ApprovalDone"
+}
+```
+
+> **同一信号可被多个订阅者接收。** 信号边界事件具有全局作用域（广播），可接收来自任何流程实例发出的信号，甚至跨不同流程实例。
+
+#### 信号边界事件（Signal Boundary Interrupting Event）
+
+附加在 `userTask` 上，在任务执行期间等待匹配信号。收到信号后中断任务（或非中断模式），按后继路线继续。
+
+**在 userTask 节点上添加 `signalBoundary` 字段：**
+
+| 字段 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `signalName` | 是 | — | 要订阅的信号名 |
+| `matchRule` | 否 | — | 可选匹配规则 |
+| `cancelActivity` | 否 | `true` | `true`=中断型（中断依附的任务），`false`=非中断型 |
+| `boundaryTarget` | 否 | — | 触发后路由到的节点 ID |
+| `eventId` | 否 | `signal_boundary_{nodeId}` | 边界事件ID |
+
+**JSON 示例：**
+```json
+{
+  "id": "task_approval",
+  "type": "userTask",
+  "name": "经理审批",
+  "assignee": {"type": "role", "value": "manager"},
+  "signalBoundary": {
+    "signalName": "CancelOrder",
+    "cancelActivity": true,
+    "boundaryTarget": "end"
+  }
+}
+```
+
+> **重要特性：** 信号边界事件为**全局作用域**，不限于当前流程范围。不同流程实例发出的相同信号也能触发此边界事件。信号被捕获后**不会消耗**，多个活跃的信号边界事件订阅同一信号时，全部都会被触发。
+
+---
+
+#### 消息事件（Message Event）概述
+
+消息是**单播**机制，每条消息只允许**唯一一个**订阅者。通过 `消息名 + 关联规则` 确定唯一订阅者。
+
+**配置消息的前提：** 必须在流程属性的 `消息` 中定义消息变量名，确保消息变量名与订阅/抛出事件一致。
+
+#### 消息捕获事件（Message Intermediate Catch Event）
+
+执行到此节点时暂停，等待匹配消息后继续。与信号不同，每条消息只允许一个订阅者，关联规则用于确定唯一目标。
+
+**JSON 节点配置：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 节点唯一ID |
+| `type` | 是 | 固定为 `messageCatch` |
+| `name` | 是 | 节点名称 |
+| `messageName` | 是 | 要订阅的消息名（需与流程属性中定义的变量名一致） |
+| `correlationKey` | 是 | **必选**关联规则，如订单号 `201702040007`，与消息名组合保证全局唯一 |
+
+**JSON 示例：**
+```json
+{
+  "id": "msg_catch_1",
+  "type": "messageCatch",
+  "name": "等待Alibaba订单消息",
+  "messageName": "Alibaba-B2B-Order",
+  "correlationKey": "201702040007"
+}
+```
+
+> **唯一性要求：** `消息名 + 关联规则` 必须全局唯一，否则存在多个订阅者会导致匹配异常。消息捕获事件由引擎自动触发，无需额外 API 调用。
+
+#### 消息抛出事件（Message Intermediate Throwing Event）
+
+执行到此节点时，向系统内部发送一条消息（内部消息）或调用外部系统接口，之后继续流转。
+
+**JSON 节点配置：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 节点唯一ID |
+| `type` | 是 | 固定为 `messageThrow` |
+| `name` | 是 | 节点名称 |
+| `messageName` | 是 | 要发出的消息名（需在流程属性中定义，与订阅事件的消息名一致） |
+
+**JSON 示例：**
+```json
+{
+  "id": "msg_throw_1",
+  "type": "messageThrow",
+  "name": "发送订单确认消息",
+  "messageName": "Alibaba-B2B-Order"
+}
+```
+
+> **同一消息只允许一个订阅者。** 抛出前必须在流程属性的「消息」中定义消息变量名，并确保消息变量名、关联规则与订阅端完全一致。
+
+#### 消息边界事件（Message Boundary Interrupting Event）
+
+附加在 `userTask` 或子流程上，在任务执行期间等待匹配消息。可以是中断型（默认）或非中断型。
+
+**在 userTask 节点上添加 `messageBoundary` 字段：**
+
+| 字段 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `messageName` | 是 | — | 要订阅的消息名 |
+| `correlationKey` | 是 | — | 必选关联规则，保证唯一订阅者 |
+| `cancelActivity` | 否 | `true` | `true`=中断型，`false`=非中断型（任务继续，同时也触发边界路线） |
+| `boundaryTarget` | 否 | — | 触发后路由到的节点 ID |
+| `eventId` | 否 | `message_boundary_{nodeId}` | 边界事件ID |
+
+**JSON 示例：**
+```json
+{
+  "id": "task_wait",
+  "type": "userTask",
+  "name": "等待付款",
+  "assignee": {"type": "role", "value": "finance"},
+  "messageBoundary": {
+    "messageName": "PaymentReceived",
+    "correlationKey": "${orderId}",
+    "cancelActivity": true,
+    "boundaryTarget": "task_ship"
+  }
+}
+```
+
+> **注意：** 消息边界事件**既可以是中断型（右手边），也可以是非中断型（左手边）**。非中断型触发后依附的任务仍然继续执行，适合并行通知场景。消息边界事件还可以通过 JMS、HTTP/SOAP 等外部系统触发。
 
 ---
 
@@ -453,6 +1080,41 @@ assignee 额外可选参数：`sameMode`, `skipOne`, `skipEmpty`, `skipApproval`
 
 > **注意：** `approvalRole` 和 `position` 自动包装为表达式（`flowUtil.getUsersByApprRole` / `oaFlowExpression.getApplyUserDeptPositionLevel`），只需传 ID。
 
+**节点抄送人（ccConfig）字段：**
+
+在节点 JSON 中通过 `ccConfig` 数组配置抄送人，脚本自动 base64 编码后写入 `<flowable:ccConfigJson>`：
+
+```json
+{
+  "id": "task_manager",
+  "type": "userTask",
+  "name": "经理审批",
+  "assignee": {"type": "role", "value": "manager"},
+  "ccConfig": [
+    {
+      "type": "candidateUsers",
+      "userIds": ["qinfeng"],
+      "selectedUsers": [{"value": "qinfeng", "label": "秦峰"}]
+    },
+    {"type": "submitter_dept_leader"},
+    {"type": "dept_leader"}
+  ]
+}
+```
+
+| ccConfig type | 说明 | 附加字段 |
+|--------------|------|---------|
+| `candidateUsers` | 指定用户 | `userIds`（用户名数组）、`selectedUsers`（`[{value,label}]`） |
+| `candidateRoles` | 指定角色 | `roleIds`（角色编码数组）、`selectedRoles`（`[{value,label}]`） |
+| `candidateDeptPositions` | 指定岗位 | `deptPositionIds`（岗位ID数组）、`selectedDeptPositions`（`[{value,label}]`） |
+| `submitter_user` | 发起人本人 | 无 |
+| `submitter_dept_leader` | 发起人的部门负责人 | 无 |
+| `submitter_parent_dept_leader` | 发起人的上级部门负责人 | 无 |
+| `dept_members` | 发起人所在部门全体成员 | 无 |
+| `dept_leader` | 当前节点审批人的部门负责人 | 无 |
+
+> 详细说明及 Python 生成代码见 `references/bpmn-advanced.md` 第2节。
+
 **连线（flows）字段：**
 
 | 字段 | 必填 | 说明 |
@@ -469,6 +1131,12 @@ assignee 额外可选参数：`sameMode`, `skipOne`, `skipEmpty`, `skipApproval`
 {"field": "integer_xxx", "fieldType": "integer", "fieldName": "请假天数", "operator": "gt", "value": "3"}
 ```
 operator 值：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`/`le`, `in`, `not_in`, `contains`, `is_empty`, `is_not_empty`
+
+**表单类型选择规则（强制）：**
+
+> 用户明确说"online表单"时，表单部分必须使用 **jeecg-onlform** 技能创建，`formType` 填 `"1"`。
+> 用户明确说"表单设计器"时，表单部分使用 **jeecg-desform** 技能创建，`formType` 填 `"2"`。
+> 两者是完全独立的表单体系，不可混用。
 
 **表单关联（formLink）字段：**
 
@@ -536,13 +1204,13 @@ operator 值：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`/`le`, `in`, `not_in`, `conta
 **调用示例：**
 ```bash
 python "<skill目录>/scripts/bpmn_creator.py" \
-    --api-base https://boot3.jeecg.com/jeecgboot \
-    --token eyJhbGciOiJIUzI1NiJ9... \
+    --api-base <api_base> \
+    --token <token> \
     --config leave_process.json
 
 # 只生成 XML 不调用 API（调试用）
 python "<skill目录>/scripts/bpmn_creator.py" \
-    --api-base https://boot3.jeecg.com/jeecgboot \
+    --api-base <api_base> \
     --token xxx \
     --config leave_process.json \
     --dry-run
@@ -880,7 +1548,45 @@ result = set_node_field_permissions(api_base, token, process_id, 'task_draft', '
 |---------|--------------|-------------|---------------|
 | Online (formType=1) | `online:{表名}:{字段名}` | 表名 | null |
 | DesForm (formType=2) | `{desformComKey}` | 表单编码 | 组件 key |
-| **自定义 (formType=3)** | **`{自定义编码}`** | **数据库表名** | null |
+| **自定义 (formType=3)** | **`{自定义编码}`** | **主表表名（主表字段和子表列都用主表名！）** | null |
+
+**Online 表单子表字段的 ruleName 格式（实测验证）：**
+
+- 主表字段：`ruleName` = 字段中文名，如 `申请标题`
+- **子表字段：`ruleName` = `{子表描述}::{字段中文名}`，如 `采购明细::金额`**
+- `formBizCode` 填**子表表名**（不是主表表名），`ruleCode` 也用子表表名：`online:{子表表名}:{字段名}`
+
+> **⚠ Online 与自定义表单的子表列 formBizCode 规则相反（实测验证）：**
+> - **Online (formType=1)**：子表列 `formBizCode` = **子表表名**
+> - **自定义 (formType=3)**：子表列 `formBizCode` = **主表表名**（与主表字段相同！）
+>
+> 用错会导致权限保存成功但流程节点设计器中看不到配置，`subPermissionList` 也不注入。
+
+**更新已有字段权限时（强制要求）：**
+
+> 调用 `saveOrUpdateBatch` 更新权限时，**必须先查询已有记录**，携带原记录的 `id` 提交，**不得修改 `ruleName`**。直接新建（不带 `id`）会导致重复记录；擅自修改 `ruleName` 会破坏系统中已有的字段名称显示。
+
+```python
+# 正确流程：先查 → 取 id + ruleName → 只改 status/required
+r = requests.get(f"{BASE}/act/process/extActProcessNodePermission/list",
+    headers=headers,
+    params={"processId": process_id, "processNodeCode": node_code, "pageNo": 1, "pageSize": 100})
+records = r.json()["result"]["records"]
+existing = {rec["ruleCode"]: rec for rec in records}
+
+# 更新时保留原 id 和 ruleName，只修改 status/required
+payload = []
+for rule_code, new_status_1, new_status_2, new_required in fields_to_update:
+    rec1 = existing.get(rule_code + ":ruleType1")  # 按实际查询结果匹配
+    payload.append({
+        "id": rec["id"],           # 必须携带原 id
+        "ruleName": rec["ruleName"],  # 保留原 ruleName，不修改
+        "ruleType": rec["ruleType"],
+        "status": new_status,
+        "required": new_required,
+        # ... 其他字段不变
+    })
+```
 
 **自定义开发表单（formType=3）字段权限配置详解（实测验证）：**
 
@@ -919,7 +1625,16 @@ PUT /act/process/extActProcessNode/edit
 
 **第 1.5 步：添加授权标识到菜单（前置条件）**
 
-> **重要：** 自定义开发表单的字段权限编码（ruleCode）必须先作为**按钮/权限**添加到系统菜单中，并授权给 admin 角色，否则 `hasPermission(code)` 和 `isDisabledAuth(code)` 无法识别该权限编码。
+> **重要（实测验证，按表结构区分）：**
+>
+> | 表类型 | 是否需要 sys_permission | 说明 |
+> |--------|----------------------|------|
+> | **单表**（formType=3） | ✅ **需要** | `hasPermission`/`isDisabledAuth` 依赖 sys_permission 中的权限编码 |
+> | **一对多主子表**（formType=3） | ❌ **不需要** | BPM 引擎直接通过 `formData.permissionList` 注入，前端从中读取，与 sys_permission 无关 |
+>
+> 一对多场景只需两步：① data.ts 中 `getBpmFormSchema` 加钩子 ② `saveOrUpdateBatch` 写权限记录。
+
+> **重要：** 自定义开发**单表**表单的字段权限编码（ruleCode）必须先作为**按钮/权限**添加到系统菜单中，并授权给 admin 角色，否则 `hasPermission(code)` 和 `isDisabledAuth(code)` 无法识别该权限编码。
 
 ```
 POST /sys/permission/add
@@ -1030,11 +1745,19 @@ POST /act/process/extActProcessNodePermission/saveOrUpdateBatch
 },
 ```
 
-> **子表字段的 ruleName 必须带子表描述前缀（实测验证）：**
+> **子表字段的 ruleName 格式（实测验证）：**
 >
-> 主子表中，子表字段的 `ruleName` 格式为 `{子表描述}::{字段标签}`，如 `商品明细::小计`、`商品明细::数量`。
-> 不带前缀会导致 UI 上字段名显示不完整（只显示"小计"而非"商品明细::小计"）。
-> `ruleCode` 和 `formBizCode` 使用子表的表名（如 `sales_order_detail`），不需要前缀。
+> - **Online (formType=1)**：`ruleName` = `{子表描述}::{字段标签}`，如 `商品明细::小计`；`formBizCode` = 子表表名
+> - **自定义 (formType=3)**：`ruleName` = `{子表描述}{字段标签}`（无 `::`，直接拼接），如 `订单明细商品名称`；`formBizCode` = **主表表名**（与主表字段完全相同）；`ruleCode` = `{子表Key前缀}:{columnKey}`，如 `salOrderItemColumns:productName`
+>
+> 自定义表单子表列权限写入示例：
+> ```python
+> # formBizCode 统一用主表名，不论主表字段还是子表列！
+> {"ruleType":"1","status":"1","formType":"3","formBizCode":"sal_sales_order",
+>  "ruleCode":"salOrderItemColumns:productName","ruleName":"订单明细商品名称", ...}
+> {"ruleType":"2","status":"1","formType":"3","formBizCode":"sal_sales_order",
+>  "ruleCode":"salOrderItemColumns:productName","ruleName":"订单明细商品名称", ...}
+> ```
 
 **Online 表单设置必填的完整示例：**
 ```python
@@ -1067,6 +1790,109 @@ api_request(api_base, token, '/act/process/extActProcessNodePermission/saveOrUpd
 ```
 
 > 每个字段在后端存储为两条记录：`ruleType=1`（可见性规则）和 `ruleType=2`（可编辑性规则），批量通过 `POST /act/process/extActProcessNodePermission/saveOrUpdateBatch` 保存。
+
+---
+
+### OA 审批意见字段配置规范（DesForm + 流程节点联动）
+
+> 适用场景：表单使用 `oa-approval-comments`（审批意见控件），需要与流程节点联动——表单上默认禁用，流转到对应节点时才启用并必填。
+
+#### 第一步：表单设计器中设置审批意见为禁用状态
+
+`oa-approval-comments` 控件创建时默认 `disabled: false`，**必须手动将其设为 `disabled: true`**，否则表单上的审批意见框始终可编辑，与流程节点控制失效。
+
+**操作方式（通过 desform_utils）：**
+
+```python
+import sys, json
+sys.path.insert(0, r'<desform-skill目录>/scripts')
+from desform_utils import init_api, export_design_json, save_design_from_file
+
+init_api('<api_base>', '<token>')
+
+# 1. 导出当前设计 JSON
+file_path, _ = export_design_json('<form_code>')
+
+# 2. 遍历所有控件，将 oa-approval-comments 的 disabled 设为 True
+with open(file_path, 'r', encoding='utf-8') as f:
+    design = json.load(f)
+
+def walk(items):
+    for w in items:
+        if w.get('type') == 'oa-approval-comments':
+            w['options']['disabled'] = True
+        for child in w.get('list', []):
+            walk([child])
+        for col in w.get('columns', []):
+            walk(col.get('list', []))
+
+walk(design.get('list', []))
+
+with open(file_path, 'w', encoding='utf-8') as f:
+    json.dump(design, f, ensure_ascii=False)
+
+# 3. 保存回服务器
+save_design_from_file('<form_code>', file_path)
+```
+
+#### 第二步：每个审批节点配置字段权限
+
+**规则（必须同时满足三点）：**
+1. 开启节点表单可编辑（`formEditStatus=1`）并设置 DesForm 表单地址
+2. 对应审批意见字段：`editable=True, required=True`（启用并必填）
+3. 其他所有字段：`editable=False`（只读，防止审批人篡改申请内容）
+
+**完整 Python 示例：**
+
+```python
+import sys
+sys.path.insert(0, r'<bpmn-skill目录>/scripts')
+from bpmn_creator import edit_node_config, set_node_field_permissions
+
+api_base = '<api_base>'
+token = '<token>'
+process_id = '<process_id>'
+form_code = '<form_code>'
+form_url = '{{DOMAIN_URL}}/desform/edit/<form_code>/${BPM_DES_DATA_ID}?token={{TOKEN}}&taskId={{TASKID}}&skip=false'
+
+# 所有表单字段（中文名列表）
+all_fields = ['字段A', '字段B', '审批意见1', '审批意见2', ...]
+
+# 每个节点 → 该节点可编辑且必填的审批意见字段
+node_editable_fields = {
+    'task_node1': {'审批意见1'},
+    'task_node2': {'审批意见2'},
+}
+
+for node_code, editable_set in node_editable_fields.items():
+    # 1. 开启表单可编辑 + 设置表单地址
+    edit_node_config(api_base, token, process_id, node_code, {
+        'formEditStatus': '1',
+        'modelAndView': form_url,
+        'modelAndViewMobile': 'check/desForm/flowedit',
+    })
+
+    # 2. 设置字段权限：对应审批意见字段必填，其余只读
+    perms = []
+    for field in all_fields:
+        if field in editable_set:
+            perms.append({'field': field, 'visible': True, 'editable': True, 'required': True})
+        else:
+            perms.append({'field': field, 'visible': True, 'editable': False, 'required': False})
+    set_node_field_permissions(api_base, token, process_id, node_code, form_code, perms)
+```
+
+#### 第三步：节点配置修改后重新发布流程
+
+> **重要：** 修改节点 `formEditStatus`、`modelAndView`、字段权限等配置后，**必须重新发布流程**，否则已发布版本不会生效。
+
+```python
+from bpmn_creator import deploy_process
+result = deploy_process(api_base, token, process_id)
+# success: True → 发布成功
+```
+
+---
 
 ### Step 7: 输出结果
 
@@ -1467,6 +2293,372 @@ async function handlePreviewPic(record) {
 - `queryByIdUrl` 指向后端 `queryById` 接口
 - `formUrl` 参数（List.vue 的 handleProcess 中）指向此 Form 组件路径（不含 `.vue` 后缀）
 
+### 5.1 Form.vue（一对多子表）— 含子表节点字段权限控制
+
+> 适用场景：主表 + 一对多子表（JVxeTable），需在流程节点上对主表字段和子表列分别配置显示/禁用权限。
+
+**与单表 Form.vue 的区别：**
+
+| 差异点 | 单表 Form.vue | 一对多 Form.vue |
+|--------|--------------|----------------|
+| 模板 | 仅 BasicForm | BasicForm + a-tabs + JVxeTable |
+| 子表列权限 | 无 | `filterSubTableColnmns` 过滤 `subPermissionList` |
+| 子表数据 | 无 | `purXxxTable.dataSource` 绑定，`initFormData` 加载 |
+| submit | `getFieldsValue` | `getFieldsValue` + `ref.getTableData()` |
+
+**完整模板：**
+
+```vue
+<template>
+  <div style="min-height: 400px">
+    <BasicForm @register="registerForm"></BasicForm>
+    <!-- 子表tabs -->
+    <a-tabs v-model:activeKey="activeKey" animated class="jeecg-tab">
+      <a-tab-pane tab="{{subTableLabel}}" key="{{subTableKey}}" :forceRender="true">
+        <JVxeTable
+          keep-source
+          resizable
+          ref="{{subTableKey}}"
+          :loading="{{subTableKey}}Table.loading"
+          :columns="{{subTableKey}}Table.columns"
+          :dataSource="{{subTableKey}}Table.dataSource"
+          :height="300"
+          :rowNumber="true"
+          :rowSelection="!formDisabled"
+          :disabled="formDisabled"
+          :toolbar="!formDisabled"
+        />
+      </a-tab-pane>
+    </a-tabs>
+    <div style="width: 100%; text-align: center; margin-top: 8px" v-if="!formDisabled">
+      <a-button @click="submitForm" pre-icon="ant-design:check" type="primary">提 交</a-button>
+    </div>
+  </div>
+</template>
+
+<script lang="ts">
+  import { BasicForm, useForm } from '/@/components/Form/index';
+  import { computed, defineComponent, ref, reactive } from 'vue';
+  import { defHttp } from '/@/utils/http/axios';
+  import { propTypes } from '/@/utils/propTypes';
+  import { JVxeTable } from '/@/components/jeecg/JVxeTable';
+  import { getBpmFormSchema, {{subTableKey}}Columns } from '../{{entityName}}.data';
+  import { saveOrUpdate } from '../{{entityName}}.api';
+
+  export default defineComponent({
+    name: '{{entityName}}Form',
+    components: { BasicForm, JVxeTable },
+    props: {
+      formData: propTypes.object.def({}),
+      formBpm: propTypes.bool.def(true),
+    },
+    setup(props) {
+      const [registerForm, { setFieldsValue, setProps, getFieldsValue }] = useForm({
+        labelWidth: 150,
+        schemas: getBpmFormSchema(props.formData),
+        showActionButtonGroup: false,
+        baseColProps: { span: 24 },
+      });
+
+      const formDisabled = computed(() => {
+        if (props.formData.disabled === false) {
+          return false;
+        }
+        return true;
+      });
+
+      const activeKey = ref('{{subTableKey}}');
+      // 子表 JVxeTable 实例引用，名称必须与模板 ref="{{subTableKey}}" 一致
+      const {{subTableKey}} = ref();
+
+      let mainFormData: any = {};
+      const queryByIdUrl = '/{{entityPackagePath}}/{{entityName_uncap}}/queryById';
+      const querySubUrl = '/{{entityPackagePath}}/{{entityName_uncap}}/query{{SubEntityName}}ByMainId';
+
+      const {{subTableKey}}Table = reactive({
+        loading: false,
+        dataSource: [],
+        // filterSubTableColnmns 根据 subPermissionList 过滤列的显示/禁用
+        columns: filterSubTableColnmns({{subTableKey}}Columns, '{{permCodePrefix}}:'),
+        show: false,
+      });
+
+      /**
+       * 子表列权限过滤（从 props.formData.subPermissionList 读取节点配置的列权限）
+       * @param columns  原始列配置数组
+       * @param pre      流程节点上配置的权限编码前缀，如 'purApplyItemColumns:'
+       */
+      function filterSubTableColnmns(columns, pre) {
+        let authList = props.formData.subPermissionList;
+        // 未配置子表权限时原样返回
+        if (!authList || authList.length === 0) {
+          return columns;
+        }
+        return columns.filter(item => {
+          let oneAuthList = authList.filter(auth => auth.action === pre + item.key);
+          if (!oneAuthList || oneAuthList.length === 0) {
+            return true;
+          }
+          let oneAuthHidden = oneAuthList.find(auth => auth.type == '1');
+          let oneAuthDisable = oneAuthList.find(auth => auth.type == '2');
+          // 隐藏逻辑（type=1 且无权限）
+          if (oneAuthHidden && !oneAuthHidden.isAuth) {
+            return false;
+          }
+          // 禁用逻辑（type=2 且无权限）
+          if (oneAuthDisable && !oneAuthDisable.isAuth) {
+            item['disabled'] = true;
+          } else {
+            item['disabled'] = false;
+          }
+          return true;
+        });
+      }
+
+      async function initFormData() {
+        let params = { id: props.formData.dataId };
+        const data = await defHttp.get({ url: queryByIdUrl, params });
+        mainFormData = { ...data };
+        await setFieldsValue(mainFormData);
+        await setProps({ disabled: formDisabled.value });
+        // 加载子表数据
+        if (props.formData.dataId) {
+          {{subTableKey}}Table.loading = true;
+          try {
+            const items = await defHttp.get({ url: querySubUrl, params: { id: props.formData.dataId } });
+            {{subTableKey}}Table.dataSource = items || [];
+          } finally {
+            {{subTableKey}}Table.loading = false;
+          }
+        }
+      }
+
+      async function submitForm() {
+        let data = getFieldsValue();
+        // 优先从 JVxeTable 实例获取含用户编辑的最新数据
+        let items: any[] = {{subTableKey}}Table.dataSource;
+        if ({{subTableKey}}.value?.getTableData) {
+          items = {{subTableKey}}.value.getTableData() || {{subTableKey}}Table.dataSource;
+        }
+        let params = Object.assign({}, mainFormData, data, {
+          {{subTableKey}}List: items,
+        });
+        await saveOrUpdate(params, true);
+      }
+
+      initFormData();
+
+      return {
+        registerForm,
+        formDisabled,
+        activeKey,
+        {{subTableKey}},
+        {{subTableKey}}Table,
+        submitForm,
+      };
+    },
+  });
+</script>
+
+<style lang="less" scoped>
+  .jeecg-tab { padding: 0 20px; }
+  :deep(.ant-input-number) { width: 100%; }
+</style>
+```
+
+**模板变量说明：**
+
+| 变量 | 示例值 | 说明 |
+|------|--------|------|
+| `{{subTableLabel}}` | `采购明细` | tab 标签文字 |
+| `{{subTableKey}}` | `purPurchaseApplyItem` | ref 名称、reactive key 名，需与 data.ts 中列变量名前缀对应 |
+| `{{subTableKey}}Columns` | `purPurchaseApplyItemColumns` | data.ts 导出的子表列配置 |
+| `{{permCodePrefix}}` | `purApplyItemColumns` | 流程节点上配置子表列权限时的编码前缀（不含末尾冒号） |
+| `{{SubEntityName}}` | `PurPurchaseApplyItem` | 子表实体大驼峰名，用于拼接后端接口路径 |
+| `{{subTableKey}}List` | `purPurchaseApplyItemList` | 提交时子表数组的字段名（与后端 DTO 一致） |
+
+**关键注意事项：**
+
+1. `filterSubTableColnmns` 读取 `props.formData.subPermissionList`（由 BPM 引擎注入），`subPermissionList` 为空时不过滤任何列，原样显示
+2. 模板中 `ref="{{subTableKey}}"` 与 setup 返回的 `{{subTableKey}}` 变量名**必须一致**，否则 `getTableData()` 拿不到用户编辑的数据
+3. 子表数据加载/loading 统一操作 `{{subTableKey}}Table.dataSource` 和 `{{subTableKey}}Table.loading`，不可另建独立 ref（模板绑定的是 reactive 对象）
+4. `submitForm` 中优先用 `ref.value.getTableData()` 拿最新数据，降级到 `table.dataSource`
+5. `getBpmFormSchema(props.formData)` 内部调用 `initBpmFormData(props.formData)`，确保主表字段的 `show`/`dynamicDisabled` 能读取到节点权限
+
+### 5.2 Form.vue（含一对一子表）— 嵌入 BasicForm 子组件 + 节点字段权限控制
+
+> 适用场景：主表 + 一对一子表（BasicForm 嵌入），需在流程节点上对一对一子表字段配置显示/禁用权限。
+
+#### data.ts 中为一对一子表单独导出 getBpmFormSchemaOne
+
+一对一子表需要独立的 `getBpmFormSchemaOne(formData)` 函数，同样调用 `initBpmFormData`：
+
+```typescript
+export function getBpmFormSchemaOne(formData): FormSchema[] {
+  const { isDisabledAuth, hasPermission, initBpmFormData } = usePermission();
+  initBpmFormData(formData);
+  const bpmFormSchemaOne: FormSchema[] = [
+    { label: '', field: 'id',     component: 'Input', show: false },
+    { label: '', field: 'mainId', component: 'Input', show: false },
+    {
+      label: '客户名称', field: 'customerName', required: true, component: 'Input',
+      dynamicDisabled: ({ values }) => isDisabledAuth('salOne:customerName'),
+    },
+    {
+      label: '联系人', field: 'contactPerson', component: 'Input',
+      show: ({ values }) => hasPermission('salOne:contactPerson'),
+    },
+    // ... 其他字段
+  ];
+  return bpmFormSchemaOne;
+}
+```
+
+**ruleCode 命名约定（三类并存时区分前缀）：**
+
+| 子表类型 | ruleCode 前缀 | 示例 |
+|---------|--------------|------|
+| 主表字段 | `{模块}:` | `sal:orderNo` |
+| 一对一子表字段 | `{模块}One:` | `salOne:customerName` |
+| 一对多子表列 | `{子表变量名}Columns:` | `salOrderItemColumns:productName` |
+
+**formBizCode 统一用主表名**（三类权限记录的 formBizCode 均相同）：`sal_sales_order`
+
+#### 一对一子表组件（XxxOneForm.vue）
+
+```vue
+<template>
+  <BasicForm @register="registerForm" name="{{EntityName}}OneForm" class="basic-modal-form" />
+</template>
+
+<script lang="ts">
+  import { defineComponent } from 'vue';
+  import { BasicForm, useForm } from '/@/components/Form/index';
+  import { getBpmFormSchemaOne } from '../{{EntityName}}.data';
+  import { defHttp } from '/@/utils/http/axios';
+  import { VALIDATE_FAILED } from '/@/utils/common/vxeUtils';
+  import { propTypes } from '@/utils/propTypes';
+
+  export default defineComponent({
+    name: '{{EntityName}}OneForm',
+    components: { BasicForm },
+    emits: ['register'],
+    props: {
+      formData: propTypes.object.def({}),
+      disabled: { type: Boolean, default: false },
+    },
+    setup(props, { emit }) {
+      const [registerForm, { setProps, resetFields, setFieldsValue, getFieldsValue, validate, scrollToField }] = useForm({
+        schemas: getBpmFormSchemaOne(props.formData),   // ← 传入 formData 激活节点权限
+        showActionButtonGroup: false,
+        baseColProps: { span: 12 },
+      });
+
+      /**
+       * 初始化加载数据（由父组件 Form.vue 调用）
+       * @param url  子表查询接口，如 /sal/salSalesOrder/querySalCustomerInfoByMainId
+       * @param id   主表 ID
+       */
+      function initFormData(url, id) {
+        if (id) {
+          defHttp.get({ url, params: { id } }, { isTransformResponse: false }).then((res) => {
+            if (res.success && res.result && res.result.length > 0) {
+              setFieldsValue({ ...res.result[0] });
+            }
+          });
+        }
+        setProps({ disabled: props.disabled });
+      }
+
+      /** 获取表单数据（返回数组，与后端 List<Entity> 一致） */
+      function getFormData() {
+        let formData = getFieldsValue();
+        Object.keys(formData).map((k) => {
+          if (formData[k] instanceof Array) formData[k] = formData[k].join(',');
+        });
+        return [formData];
+      }
+
+      /** 表单校验 */
+      function validateForm(index) {
+        return new Promise((resolve, reject) => {
+          validate()
+            .then(() => resolve(undefined))
+            .catch(({ errorFields }) =>
+              reject({ error: VALIDATE_FAILED, index, errorFields, scrollToField })
+            );
+        });
+      }
+
+      return { registerForm, resetFields, initFormData, getFormData, validateForm };
+    },
+  });
+</script>
+
+<style lang="less" scoped>
+  .basic-modal-form { overflow: auto; height: 280px; }
+</style>
+```
+
+#### 父级 Form.vue 中嵌入一对一子表组件
+
+在主 Form.vue 的 `<template>` 中通过 `ref` 引用子组件，调用其 `initFormData` / `getFormData` / `validateForm`：
+
+```vue
+<template>
+  <div>
+    <BasicForm @register="registerForm" />
+    <!-- 一对一子表 -->
+    <{{EntityName}}OneForm ref="oneFormRef" :formData="props.formData" :disabled="formDisabled" />
+    <!-- 一对多子表（JVxeTable） -->
+    ...
+  </div>
+</template>
+
+<script lang="ts">
+  // initFormData 中加载一对一数据
+  const oneFormRef = ref();
+  async function initFormData() {
+    const data = await defHttp.get({ url: queryByIdUrl, params: { id: props.formData.dataId } });
+    await setFieldsValue(data);
+    // 加载一对一子表
+    oneFormRef.value?.initFormData('/sal/salSalesOrder/querySalCustomerInfoByMainId', props.formData.dataId);
+  }
+
+  // submitForm 中收集一对一数据
+  async function submitForm() {
+    let data = getFieldsValue();
+    let oneData = oneFormRef.value?.getFormData() || [];
+    let params = Object.assign({}, mainFormData, data, {
+      salCustomerInfoList: oneData,       // 一对一子表数据
+      salOrderItemList: tableData,        // 一对多子表数据
+    });
+    await saveOrUpdate(params, true);
+  }
+</script>
+```
+
+#### 节点字段权限配置（一对一子表）
+
+一对一子表字段的权限记录与主表字段写入同一批次，`formBizCode` 统一用主表名：
+
+```python
+perms = [
+    # 主表字段
+    {"ruleCode": "sal:orderNo",         "formBizCode": "sal_sales_order", ...},
+    # 一对一子表字段（formBizCode 仍用主表名）
+    {"ruleCode": "salOne:customerName", "formBizCode": "sal_sales_order", ...},
+    {"ruleCode": "salOne:phone",        "formBizCode": "sal_sales_order", ...},
+    # 一对多子表列（formBizCode 仍用主表名）
+    {"ruleCode": "salOrderItemColumns:productName", "formBizCode": "sal_sales_order", ...},
+]
+```
+
+> **是否需要 sys_permission？**
+> 含一对多子表的表单（主表 + 一对一 + 一对多）属于"一对多场景"，全部字段（含一对一子表字段）均**不需要**添加 sys_permission，BPM 引擎直接通过 `formData.permissionList` 注入。
+
+---
+
 ### flowCode 命名规则
 
 `flowCode` 必须与流程关联表单时的 `relationCode` 一致：
@@ -1503,7 +2695,7 @@ async function handlePreviewPic(record) {
 
 - 应用名称：费用报销单
 - 表单编码：oa_expense_reimbursement
-- 目标环境：http://localhost:8080/jeecgboot
+- 目标环境：<api_base>
 
 ### 表单字段
 
@@ -1827,3 +3019,4 @@ deploy_process(api_base, token, process_id)
 - 阅读 `references/bpmn-call-activity.md` 获取调用子流程（callActivity）详细说明
 - 阅读 `references/bpmn-manual-branch.md` 获取手工分支（意见分支）详细说明
 - 阅读 `references/bpmn-templates.md` 获取参考文件索引（已拆分为 8 个子文件）
+

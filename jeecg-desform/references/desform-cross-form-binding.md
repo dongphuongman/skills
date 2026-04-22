@@ -115,26 +115,26 @@ add_widget('task_code', ws_lf)
 
 ## 四、阶段3：设置双向关联 twoWayModel
 
-**关键：update_widget 的第二个参数必须用 `key`，不能用 `model`。**
+**关键：update_widget 必须用 `key=` 关键字参数定位控件，不能用 `model=`。**
 
 ```python
 # 重新获取最新字段
 _, pf = get_form_fields('project_code')
 _, tf = get_form_fields('task_code')
 
-# ✅ 正确：用 key 定位控件
-update_widget('project_code', pf['项目任务']['key'],
-              {'options': {'twoWayModel': tf['所属项目']['model']}})
-update_widget('task_code', tf['所属项目']['key'],
-              {'options': {'twoWayModel': pf['项目任务']['model']}})
+# ✅ 正确：用 key= 关键字参数定位控件
+update_widget('project_code', {'options': {'twoWayModel': tf['所属项目']['model']}},
+              key=pf['项目任务']['key'])
+update_widget('task_code', {'options': {'twoWayModel': pf['项目任务']['model']}},
+              key=tf['所属项目']['key'])
 
-# ❌ 错误：用 model 定位（报"组件不存在"）
-update_widget('project_code', pf['项目任务']['model'],
-              {'options': {'twoWayModel': tf['所属项目']['model']}})
+# ❌ 错误：用 model= 定位（报"组件不存在"）
+update_widget('project_code', {'options': {'twoWayModel': tf['所属项目']['model']}},
+              model=pf['项目任务']['model'])
 ```
 
 > 注意：twoWayModel 的 **值** 填的是对方 link-record 的 **model**（不是 key），
-> 但 update_widget **定位控件** 用的是 **key**。
+> 但 update_widget **定位控件** 用的是 `key=`。
 
 ---
 
@@ -145,7 +145,7 @@ update_widget('project_code', pf['项目任务']['model'],
 | add_widget 传入整个 LINK_RECORD 返回值 | `JSON parse error: Cannot deserialize` | 只传 `ws`（元组第一个元素） |
 | LINK_FIELD 传 `save_type` 参数 | `TypeError: unexpected keyword argument` | 创建后手动修改 `w['options']['saveType']` |
 | SUB_* 函数传 `parent_key=None` | `KeyError: 'subOptions'` | 不要在 Python 中手动调 SUB_*，用 JSON 配置的 sub-table-design |
-| update_widget 用 model 定位控件 | `组件不存在，无法操作` | 用 `key` 定位（`fields['字段名']['key']`） |
+| update_widget 用 model= 定位控件 | `组件不存在，无法操作` | 用 `key=` 定位（`key=fields['字段名']['key']`） |
 | update_form 重建含关联的表单 | 所有 model 重新生成，破坏其他表的引用 | 用 add_widget 增量添加关联，不要用 update_form |
 | JSON 配置中写 link-record 的 titleField | 目标表重建后 model 变化，引用失效 | 用阶段 2 的 Python 方式动态获取 |
 
@@ -202,10 +202,10 @@ add_widget('form_b', ws)
 _, fa2 = get_form_fields('form_a')
 _, fb2 = get_form_fields('form_b')
 
-update_widget('form_a', fa2['子表C']['key'],
-              {'options': {'twoWayModel': fc2['所属A']['model']}})
-update_widget('form_c', fc2['所属A']['key'],
-              {'options': {'twoWayModel': fa2['子表C']['model']}})
+update_widget('form_a', {'options': {'twoWayModel': fc2['所属A']['model']}},
+              key=fa2['子表C']['key'])
+update_widget('form_c', {'options': {'twoWayModel': fa2['子表C']['model']}},
+              key=fc2['所属A']['key'])
 # ... 其他双向对同理
 ```
 
@@ -228,8 +228,8 @@ add_widget('task_code', ws_lf)
 # 方法 2：add_widget 后用 update_widget 修改
 add_widget('task_code', ws_lf)
 _, tf = get_form_fields('task_code')
-update_widget('task_code', tf['项目名称']['key'],
-              {'options': {'saveType': 'save'}})
+update_widget('task_code', {'options': {'saveType': 'save'}},
+              key=tf['项目名称']['key'])
 ```
 
 > **注意：** `ws_lf` 中的元素可能是 dict（控件本身）或被 card 包裹后的嵌套结构，

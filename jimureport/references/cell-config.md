@@ -68,25 +68,25 @@
 
 **数值类：**
 
-| format | 示例显示 | 说明 |
-|--------|---------|------|
-| `number` | `1,000.12` | 千位分隔符，保留原始小数位 |
-| `percent` | `32%` | 原始值 ×100，加 % |
-| `rmb` | `￥1,000.00` | 加 ￥ 前缀 |
-| `usd` | `$1,000.00` | 加 $ 前缀 |
-| `eur` | `€1,000.00` | 加 € 前缀 |
+| format | UI中文名 | 示例显示 | 说明 |
+|--------|---------|---------|------|
+| `number` | 数值 | `1,000.12` | 千位分隔符，保留原始小数位 |
+| `percent` | 百分比 | `10.12%` | 原始值 ×100，加 % |
+| `rmb` | 人民币 | `￥1,000.00` | 加 ￥ 前缀 |
+| `usd` | 美元 | `$1,000.00` | 加 $ 前缀 |
+| `eur` | 欧元 | `€1,000.00` | 加 € 前缀 |
 
 **日期时间类：**
 
-| format | 示例显示 | 格式模板 |
-|--------|---------|---------|
-| `date` | `2020/10/10` | yyyy/MM/dd |
-| `date2` | `2020年10月10日` | yyyy年MM月dd日 |
-| `time` | `10:10:10` | hh:mm:ss |
-| `datetime` | `2020/10/10 10:10:10` | yyyy/MM/dd hh:mm:ss |
-| `year` | `2020年` | yyyy年 |
-| `month` | `10月` | MM月 |
-| `yearMonth` | `2020年10月` | yyyy年MM月 |
+| format | UI中文名 | 示例显示 | 格式模板 |
+|--------|---------|---------|---------|
+| `date` | 短日期 | `2020/10/10` | yyyy/MM/dd |
+| `date2` | 长日期 | `2020年10月10日` | yyyy年MM月dd日 |
+| `time` | 时间 | `10:10:10` | hh:mm:ss |
+| `datetime` | 日期+时间 | `2020/10/10 10:10:10` | yyyy/MM/dd hh:mm:ss |
+| `year` | 年 | `2020年` | yyyy年 |
+| `month` | 月 | `10月` | MM月 |
+| `yearMonth` | 年月 | `2020年10月` | yyyy年MM月 |
 
 ---
 
@@ -199,6 +199,26 @@ cell = {
 }
 ```
 
+### styles 字段结构规律（来自真实接口抓包）
+
+**顶层可用字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `border` | object | `{"bottom":["thin","#000"],...}` 四边独立配置，粗细可选 `thin`/`medium`/`thick` |
+| `align` | string | `"center"` / `"right"` / `"left"` |
+| `valign` | string | `"top"` / `"bottom"`（不设则默认居中） |
+| `color` | string | 文字颜色，**与 `font` 平级，不放进 `font`** |
+| `bgcolor` | string | 背景色 |
+| `underline` | bool | 下划线 |
+| `strike` | bool | 删除线（strikethrough） |
+| `textwrap` | bool | 文本自动换行；**默认会撑开行高**。仅当 cell 同时设置 `autoHeight:false` 时才固定行高、不撑开 |
+| `font` | object | 仅含 `bold`/`italic`/`size`/`name`，**不含 `color`** |
+
+**`font` 支持的子字段：**`bold:true`、`italic:true`、`size:数字`、`name:"仿宋"/"Microsoft YaHei"/"宋体"` 等系统字体。
+
+**组合规则：** 任意字段自由组合，未设的字段取默认值。border 需要四边都写才生效。
+
 ---
 
 ## 六、重要约束（来自 report-design.md）
@@ -258,7 +278,7 @@ cell = {
 | `fillForm` | 填报组件 | 组件配置对象 |
 | `virtual` | 图层占位 | 对应组件的 `layer_id` |
 | `hidden` | 隐藏单元格 | `1`=隐藏（v1.6.7+）。**需同时在根级 `hiddenCells[]` 添加范围 `{sri,sci,eri,eci}`** |
-| `autoHeight` | 自适应高度 | `true`=行高根据内容自动撑开，默认不设置。**必须同时在 style 中设置 `textwrap: true`（自动换行）才能生效** |
+| `autoHeight` | 固定/自适应高度 | 不设置或 `true`=行高随内容撑开；`false`=**固定行高**，此时即使 `textwrap:true` 也不撑开 |
 | `noHalfUp` | 不四舍五入 | `true`=小数截断而非四舍五入，**仅在设置了 `decimalPlaces` 时有效**，默认不设置 |
 | `dynamicApi` | 动态接口数据 | `true`=启用，单元格 `text` 填写 API 地址，**必须同时设置 `dynamicDataType: "api"`** |
 | `dynamicDataType` | 动态数据类型 | `"api"`=接口数据，配合 `dynamicApi: true` 使用 |
@@ -431,7 +451,7 @@ JSON 字符串，数组格式：
     "text": "#{user.cname}",
     "style": 0,
     "customEditConf": {
-        "apiUrl": "http://192.168.1.6:8085/jmreport/test/customCellEdit",
+        "apiUrl": "<api_base>/test/customCellEdit",
         "eventParams": "eyJ0aW1lIjogIjIwMjYtMDQtMDggMTg6MTM6MTAifQ=="
     }
 }

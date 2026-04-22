@@ -101,7 +101,7 @@ select username, realname, sex, email, phone, create_time from sys_user where 1=
 **默认使用后台完整地址，不用 `#{domainURL}`：**
 
 ```
-http://192.168.1.6:8085/jmreport/test/getUserMsg?cname='${cname}'&did='${did}'&riqi='${riqi}'
+<api_base>/test/getUserMsg?cname='${cname}'&did='${did}'&riqi='${riqi}'
 ```
 
 > 参数用 `'${param}'` 格式拼接在 URL 中，多参数用 `&` 连接。
@@ -156,7 +156,7 @@ req = urllib.request.Request(req_url, data=form_data, headers=headers, method='P
     "dbCode": "userMsg",
     "dbChName": "用户信息",
     "dbType": "1",
-    "apiUrl": "http://192.168.1.6:8085/jmreport/test/getUserMsg?cname='${cname}'&did='${did}'&riqi='${riqi}'",
+    "apiUrl": "<api_base>/test/getUserMsg?cname='${cname}'&did='${did}'&riqi='${riqi}'",
     "apiMethod": "0",
     "dbSource": "",
     "jsonData": "",
@@ -398,7 +398,7 @@ api_request('/jmreport/editEnhance', {
 
 ```javascript
 function init(){
-  var apiBase = 'http://192.168.1.6:8085/jmreport/test/getAreaList';
+  var apiBase = '<api_base>/test/getAreaList';
 
   $http.metaGet(apiBase).then(res => {
     var data = Array.isArray(res) ? res : (res.data || res);

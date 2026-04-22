@@ -189,6 +189,8 @@ public class {{entityName}} implements Serializable {
 
 ### A2. Controller.java
 
+> **⚠️ 重要：本节模板仅适用于单表。一对多表的 Controller 请使用 C6 节的完整模板，禁止使用 `extends JeecgController`。**
+
 ```java
 package org.jeecg.modules.{{entityPackage}}.controller;
 
@@ -2701,17 +2703,227 @@ public class {{entityName}}Page {
 }
 ```
 
-### C6. Controller 额外端点
+### C6. 一对多 Controller 完整模板
+
+> **⚠️ 一对多 Controller 与单表完全不同，必须整体替换 A2 模板：**
+> - **不继承** `JeecgController`，是独立 class
+> - 注入 `I{{subEntityName}}Service`（不是 Mapper）
+> - 导出/导入有完整自定义逻辑（不能用 `super.exportXls/importExcel`）
+> - edit 方法需先查询主表实体是否存在
 
 ```java
-    /**
-     * 查询子表数据
-     */
-    @GetMapping(value = "/query{{subEntityName}}ByMainId")
-    public Result<List<{{subEntityName}}>> query{{subEntityName}}ByMainId(@RequestParam(name = "id", required = true) String id) {
-        List<{{subEntityName}}> list = {{subEntityName_uncap}}Mapper.selectByMainId(id);
-        return Result.OK(list);
+package org.jeecg.modules.{{entityPackage}}.controller;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.jeecgframework.poi.excel.ExcelImportUtil;
+import org.jeecgframework.poi.excel.def.NormalExcelConstants;
+import org.jeecgframework.poi.excel.entity.ExportParams;
+import org.jeecgframework.poi.excel.entity.ImportParams;
+import org.jeecgframework.poi.excel.entity.enmus.ExcelType;
+import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
+import org.jeecg.common.system.vo.LoginUser;
+import org.apache.shiro.SecurityUtils;
+import org.jeecg.common.api.vo.Result;
+import org.jeecg.common.system.query.QueryGenerator;
+import org.jeecg.common.util.oConvertUtils;
+import org.jeecg.modules.{{entityPackage}}.entity.{{entityName}};
+import org.jeecg.modules.{{entityPackage}}.entity.{{subEntityName}};
+import org.jeecg.modules.{{entityPackage}}.vo.{{entityName}}Page;
+import org.jeecg.modules.{{entityPackage}}.service.I{{entityName}}Service;
+import org.jeecg.modules.{{entityPackage}}.service.I{{subEntityName}}Service;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
+import org.springframework.web.servlet.ModelAndView;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import lombok.extern.slf4j.Slf4j;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Operation;
+import org.jeecg.common.aspect.annotation.AutoLog;
+import org.apache.shiro.authz.annotation.RequiresPermissions;
+
+/**
+ * @Description: {{description}}
+ * @Author: jeecg-boot
+ * @Date: {{today}}
+ * @Version: V1.0
+ */
+@Tag(name = "{{description}}")
+@RestController
+@RequestMapping("/{{entityPackagePath}}/{{entityName_uncap}}")
+@Slf4j
+public class {{entityName}}Controller {
+
+    @Autowired
+    private I{{entityName}}Service {{entityName_uncap}}Service;
+
+    @Autowired
+    private I{{subEntityName}}Service {{subEntityName_uncap}}Service;
+
+    //@AutoLog(value = "{{description}}-分页列表查询")
+    @Operation(summary = "{{description}}-分页列表查询")
+    @GetMapping(value = "/list")
+    public Result<IPage<{{entityName}}>> queryPageList({{entityName}} {{entityName_uncap}},
+                                                        @RequestParam(name = "pageNo", defaultValue = "1") Integer pageNo,
+                                                        @RequestParam(name = "pageSize", defaultValue = "10") Integer pageSize,
+                                                        HttpServletRequest req) {
+        QueryWrapper<{{entityName}}> queryWrapper = QueryGenerator.initQueryWrapper({{entityName_uncap}}, req.getParameterMap());
+        Page<{{entityName}}> page = new Page<{{entityName}}>(pageNo, pageSize);
+        IPage<{{entityName}}> pageList = {{entityName_uncap}}Service.page(page, queryWrapper);
+        return Result.OK(pageList);
     }
+
+    @AutoLog(value = "{{description}}-添加")
+    @Operation(summary = "{{description}}-添加")
+    @RequiresPermissions("{{entityPackage}}:{{tableName}}:add")
+    @PostMapping(value = "/add")
+    public Result<String> add(@RequestBody {{entityName}}Page {{entityName_uncap}}Page) {
+        {{entityName}} {{entityName_uncap}} = new {{entityName}}();
+        BeanUtils.copyProperties({{entityName_uncap}}Page, {{entityName_uncap}});
+        {{entityName_uncap}}Service.saveMain({{entityName_uncap}}, {{entityName_uncap}}Page.get{{subEntityName}}List());
+        return Result.OK("添加成功！");
+    }
+
+    @AutoLog(value = "{{description}}-编辑")
+    @Operation(summary = "{{description}}-编辑")
+    @RequiresPermissions("{{entityPackage}}:{{tableName}}:edit")
+    @RequestMapping(value = "/edit", method = {RequestMethod.PUT, RequestMethod.POST})
+    public Result<String> edit(@RequestBody {{entityName}}Page {{entityName_uncap}}Page) {
+        {{entityName}} {{entityName_uncap}} = new {{entityName}}();
+        BeanUtils.copyProperties({{entityName_uncap}}Page, {{entityName_uncap}});
+        {{entityName}} {{entityName_uncap}}Entity = {{entityName_uncap}}Service.getById({{entityName_uncap}}.getId());
+        if ({{entityName_uncap}}Entity == null) {
+            return Result.error("未找到对应数据");
+        }
+        {{entityName_uncap}}Service.updateMain({{entityName_uncap}}, {{entityName_uncap}}Page.get{{subEntityName}}List());
+        return Result.OK("编辑成功!");
+    }
+
+    @AutoLog(value = "{{description}}-通过id删除")
+    @Operation(summary = "{{description}}-通过id删除")
+    @RequiresPermissions("{{entityPackage}}:{{tableName}}:delete")
+    @DeleteMapping(value = "/delete")
+    public Result<String> delete(@RequestParam(name = "id", required = true) String id) {
+        {{entityName_uncap}}Service.delMain(id);
+        return Result.OK("删除成功!");
+    }
+
+    @AutoLog(value = "{{description}}-批量删除")
+    @Operation(summary = "{{description}}-批量删除")
+    @RequiresPermissions("{{entityPackage}}:{{tableName}}:deleteBatch")
+    @DeleteMapping(value = "/deleteBatch")
+    public Result<String> deleteBatch(@RequestParam(name = "ids", required = true) String ids) {
+        this.{{entityName_uncap}}Service.delBatchMain(Arrays.asList(ids.split(",")));
+        return Result.OK("批量删除成功！");
+    }
+
+    //@AutoLog(value = "{{description}}-通过id查询")
+    @Operation(summary = "{{description}}-通过id查询")
+    @GetMapping(value = "/queryById")
+    public Result<{{entityName}}> queryById(@RequestParam(name = "id", required = true) String id) {
+        {{entityName}} {{entityName_uncap}} = {{entityName_uncap}}Service.getById(id);
+        if ({{entityName_uncap}} == null) {
+            return Result.error("未找到对应数据");
+        }
+        return Result.OK({{entityName_uncap}});
+    }
+
+    //@AutoLog(value = "{{subDescription}}-通过主表ID查询")
+    @Operation(summary = "{{subDescription}}-主表ID查询")
+    @GetMapping(value = "/query{{subEntityName}}ByMainId")
+    public Result<List<{{subEntityName}}>> query{{subEntityName}}ListByMainId(@RequestParam(name = "id", required = true) String id) {
+        List<{{subEntityName}}> {{subEntityName_uncap}}List = {{subEntityName_uncap}}Service.selectByMainId(id);
+        return Result.OK({{subEntityName_uncap}}List);
+    }
+
+    @RequiresPermissions("{{entityPackage}}:{{tableName}}:exportXls")
+    @RequestMapping(value = "/exportXls")
+    public ModelAndView exportXls(HttpServletRequest request, {{entityName}} {{entityName_uncap}}) {
+        QueryWrapper<{{entityName}}> queryWrapper = QueryGenerator.initQueryWrapper({{entityName_uncap}}, request.getParameterMap());
+        LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+        String selections = request.getParameter("selections");
+        if (oConvertUtils.isNotEmpty(selections)) {
+            queryWrapper.in("id", Arrays.asList(selections.split(",")));
+        }
+        List<{{entityName}}> {{entityName_uncap}}List = {{entityName_uncap}}Service.list(queryWrapper);
+        List<{{entityName}}Page> pageList = new ArrayList<>();
+        for ({{entityName}} main : {{entityName_uncap}}List) {
+            {{entityName}}Page vo = new {{entityName}}Page();
+            BeanUtils.copyProperties(main, vo);
+            vo.set{{subEntityName}}List({{subEntityName_uncap}}Service.selectByMainId(main.getId()));
+            pageList.add(vo);
+        }
+        ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
+        mv.addObject(NormalExcelConstants.FILE_NAME, "{{description}}列表");
+        mv.addObject(NormalExcelConstants.CLASS, {{entityName}}Page.class);
+        mv.addObject(NormalExcelConstants.PARAMS, new ExportParams("{{description}}数据", "导出人:" + sysUser.getRealname(), "{{description}}", ExcelType.XSSF));
+        mv.addObject(NormalExcelConstants.DATA_LIST, pageList);
+        return mv;
+    }
+
+    @RequiresPermissions("{{entityPackage}}:{{tableName}}:importExcel")
+    @RequestMapping(value = "/importExcel", method = RequestMethod.POST)
+    public Result<?> importExcel(HttpServletRequest request, HttpServletResponse response) {
+        MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+        Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
+        for (Map.Entry<String, MultipartFile> entity : fileMap.entrySet()) {
+            MultipartFile file = entity.getValue();
+            ImportParams params = new ImportParams();
+            params.setTitleRows(2);
+            params.setHeadRows(1);
+            params.setNeedSave(true);
+            try {
+                List<{{entityName}}Page> list = ExcelImportUtil.importExcel(file.getInputStream(), {{entityName}}Page.class, params);
+                for ({{entityName}}Page page : list) {
+                    {{entityName}} po = new {{entityName}}();
+                    BeanUtils.copyProperties(page, po);
+                    {{entityName_uncap}}Service.saveMain(po, page.get{{subEntityName}}List());
+                }
+                return Result.OK("文件导入成功！数据行数:" + list.size());
+            } catch (Exception e) {
+                log.error(e.getMessage(), e);
+                return Result.error("文件导入失败:" + e.getMessage());
+            } finally {
+                try {
+                    file.getInputStream().close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        return Result.OK("文件导入失败！");
+    }
+}
+```
+
+**子表 Service 接口（需同步生成）：**
+
+```java
+// I{{subEntityName}}Service.java
+public interface I{{subEntityName}}Service extends IService<{{subEntityName}}> {
+    List<{{subEntityName}}> selectByMainId(String mainId);
+}
+
+// {{subEntityName}}ServiceImpl.java
+@Service
+public class {{subEntityName}}ServiceImpl extends ServiceImpl<{{subEntityName}}Mapper, {{subEntityName}}> implements I{{subEntityName}}Service {
+    @Override
+    public List<{{subEntityName}}> selectByMainId(String mainId) {
+        return baseMapper.selectByMainId(mainId);
+    }
+}
 ```
 
 ### C7. 前端差异 — api.ts

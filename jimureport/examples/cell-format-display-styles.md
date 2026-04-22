@@ -513,7 +513,7 @@ import time
 import random
 import hashlib
 
-API_BASE = 'http://192.168.1.6:8085'
+API_BASE = '<api_base>'
 TOKEN = 'YOUR_TOKEN_HERE'
 SIGNATURE_SECRET = 'dd05f1c54d63749eda95f9fa6d49v442a'
 

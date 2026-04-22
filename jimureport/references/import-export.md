@@ -133,11 +133,11 @@ if (typeof window.navigator.msSaveBlob !== 'undefined') {
 ```python
 import requests, os
 
-BASE_URL = "http://192.168.1.6:8085/jmreport"
+BASE_URL = "<api_base>"
 TOKEN = "xxx"
 
 # 1. 上传 Excel 文件
-filepath = r"C:\Users\Administrator\Desktop\xxx.xlsx"
+filepath = r"C:\Users\<用户名>\Desktop\xxx.xlsx"
 filename = os.path.basename(filepath)
 
 s = requests.Session()

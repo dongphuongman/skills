@@ -8,7 +8,7 @@ JeecgBoot 表单设计器数据操作工具库
     from desform_utils import init_api
     from desform_data_utils import *
 
-    init_api('https://boot3.jeecg.com/jeecgboot', 'your-token')
+    init_api('<api_base>', '<token>')
 
     # 新增数据
     result = add_data('form_code', {'input_xxx': '张三', 'phone_xxx': '13800000000'})
@@ -65,10 +65,22 @@ def add_data(code, data_dict):
 def edit_data(code, data_id, data_dict):
     """编辑表单数据
 
+    ⚠️ 全量覆盖：data_dict 会替换整条记录，未传入的字段会被清空。
+    只更新部分字段时，必须先获取完整字段数据，再合并修改后传入。
+
+    ⚠️ list_data 返回的记录结构为 {"id": "...", "desformData": {字段数据}}，
+    字段数据嵌套在 desformData 里，不能直接把整条记录传给 edit_data。
+    正确写法：
+        result = list_data(code, size=100)
+        for r in result['records']:
+            data = dict(r['desformData'])   # 取 desformData，不是整个 r
+            data['field_model'] = new_value
+            edit_data(code, r['id'], data)
+
     Args:
         code: 表单编码
         data_id: 数据ID
-        data_dict: 要更新的数据字典
+        data_dict: 完整数据字典（全量覆盖，非增量更新）
     """
     body = {
         "id": data_id,

@@ -223,6 +223,31 @@ FORMULA('工龄', mode='NOW_DATEIF',
 
 ---
 
+### PAST_NOW_DATEIF — 至今已过时长
+
+计算过去某个日期到当前时间经过了多长时间（至今已过时长）。计算方向为 `begin → now`，当 begin 在过去时结果为正数。
+
+**使用的参数：** `dateBegin`（必填）、`dateFormatMethod`、`datePrintUnit`
+
+**与 NOW_DATEIF 的区别：** NOW_DATEIF 计算的是距此刻的时长（`now - begin`，begin 在过去时可能为负数），PAST_NOW_DATEIF 计算的是从过去到现在已经过了多久（始终为正数）。
+
+**JSON 配置示例：**
+
+```json
+{"name": "工龄", "type": "formula", "mode": "PAST_NOW_DATEIF",
+ "dateBegin": "$入职日期$", "dateFormatMethod": 1, "datePrintUnit": "Y"}
+```
+
+```json
+{"name": "已过天数", "type": "formula", "mode": "PAST_NOW_DATEIF",
+ "dateBegin": "$开始日期$", "dateFormatMethod": 1, "datePrintUnit": "d"}
+```
+
+- 入职日期 2022-01-01，当前 2026-04-01 → 结果: `4年`
+- 开始日期 2026-03-01，当前 2026-04-01 → 结果: `31天`
+
+---
+
 ### DATEADD — 为日期加减时间
 
 对 dateBegin 引用的日期加减指定时间段，输出一个新的日期。
@@ -469,6 +494,12 @@ expression: "$money_xxx$*$integer_xxx$*1.13"
 **NOW_DATEIF — 距今时长：**
 ```json
 {"name": "工龄", "type": "formula", "mode": "NOW_DATEIF",
+ "dateBegin": "$entry_date_model$", "dateFormatMethod": 1, "datePrintUnit": "Y"}
+```
+
+**PAST_NOW_DATEIF — 至今已过时长：**
+```json
+{"name": "工龄", "type": "formula", "mode": "PAST_NOW_DATEIF",
  "dateBegin": "$entry_date_model$", "dateFormatMethod": 1, "datePrintUnit": "Y"}
 ```
 

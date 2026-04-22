@@ -115,7 +115,7 @@ def import_excel(base_url, token, xlsx_path, name=None):
 
 def main():
     p = argparse.ArgumentParser(description="积木报表导出/分享/导入工具")
-    p.add_argument("--base-url", default=os.environ.get("JMREPORT_URL", "http://192.168.1.6:8085/jmreport"))
+    p.add_argument("--base-url", default=os.environ.get("JMREPORT_URL", "<api_base>"))
     p.add_argument("--token", default=os.environ.get("JMREPORT_TOKEN", ""))
     sub = p.add_subparsers(dest="cmd")
 

@@ -525,7 +525,7 @@ def edit_report(session: Session, config: dict) -> str | None:
 
 def main():
     parser = argparse.ArgumentParser(description="积木报表创建/编辑工具")
-    parser.add_argument("--api-base", required=True, help="JeecgBoot  后端地址，如 http://192.168.1.6:8085")
+    parser.add_argument("--api-base", required=True, help="JeecgBoot 后端地址，如 http://192.168.x.x:8085")
     parser.add_argument("--token",    required=True, help="X-Access-Token")
     parser.add_argument("--config",   required=True, help="配置文件路径 (JSON)")
     args = parser.parse_args()

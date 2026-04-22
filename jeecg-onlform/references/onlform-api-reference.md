@@ -740,21 +740,21 @@ INSERT INTO sys_permission(
 
 ---
 
-## 10.5 建表前查重（防止重复建表）
+## 10.5 表名查重（仅按需使用，默认不调用）
+
+> **创建流程默认不调用此接口。** `addAll` 自身会校验表名是否重复并返回明确提示，前置查重属于多余开销。仅当用户明确要求"先检查后再建"时才使用。
 
 ```
-GET /sys/duplicate/check?tableName=onl_cgform_head&fieldName=table_name&fieldVal={要创建的表名}
+GET /sys/duplicate/check?tableName=onl_cgform_head&fieldName=table_name&fieldVal={要检查的表名}
 ```
-
-在调用 `addAll` 创建新表单前，**必须先调用此接口检查表名是否已存在**，避免重复建表导致报错。
 
 | 参数 | 说明 |
 |------|------|
 | tableName | 固定为 `onl_cgform_head`（Online 表单配置表） |
 | fieldName | 固定为 `table_name`（检查的字段名） |
-| fieldVal | 要创建的表名（如 `ai_demo`） |
+| fieldVal | 要检查的表名（如 `ai_demo`） |
 
-返回 `success=true` 表示表名不存在可以创建，`success=false` 表示已存在。
+返回 `success=true` 表示可用，`success=false` 表示已存在。
 
 ---
 

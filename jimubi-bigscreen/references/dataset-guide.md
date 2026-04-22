@@ -68,10 +68,9 @@ py dataset_ops.py edit $API_BASE $TOKEN --id "数据集ID" --name "新名称" --
 ## 创建 SQL 数据集
 
 ```python
-import sys, json
-sys.path.insert(0, r'D:\webstorm_project_2023\vue3-jeecg-drag-design-antd4')
+import json
 import bi_utils
-bi_utils.init_api('http://api3.boot.jeecg.com', 'your-token')
+bi_utils.init_api('<api_base>', '<token>')
 
 result = bi_utils._request('POST', '/drag/onlDragDatasetHead/add', data={
     'name': '用户男女比例统计',
@@ -118,7 +117,7 @@ import pymysql
 # 连接信息从数据源 API 获取（datasource_ops.py detail --id xxx）
 # 注意：JDBC URL 中的 127.0.0.1 是服务器本地地址，需替换为实际 IP
 conn = pymysql.connect(
-    host='192.168.1.66', port=3306,
+    host='<db_host>', port=3306,
     user='root', password='root',
     database='jeecg-boot', charset='utf8mb4'
 )
@@ -269,8 +268,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.path.insert(0, '.')
 import bi_utils
 
-API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
-TOKEN = 'your-token'
+API_BASE = '<api_base>'
+TOKEN = '<token>'
 PAGE_ID = 'your-page-id'
 bi_utils.API_BASE = API_BASE
 bi_utils.TOKEN = TOKEN
@@ -417,7 +416,7 @@ print(f"推送 URL: {API_BASE}/drag/websocket/sendData?token={TOKEN}&chartId={co
 > - **定时自动推送**：在接口上加 `@Scheduled(cron="...")` 注解，服务启动后定时执行
 >
 > **问题二：Java Controller 文件存放路径**
-> 例如：`D:\jeecgboot2025\...\controller`
+> 例如：你的Java Controller存放的路径是什么？
 
 **收到回答后，根据以下模板编写完整 Controller 文件：**
 
@@ -722,7 +721,7 @@ def upload_file(file_path, report_id, is_single=False):
         return json.loads(resp.read().decode('utf-8'))
 
 PAGE_ID = '大屏页面ID'
-upload_file(r'E:\data\employees.xlsx', PAGE_ID)  # 多文件不传 is_single
+upload_file(r'<file_path>', PAGE_ID)  # 多文件不传 is_single
 
 # ======= Step 2：获取文件列表，提取真实表名 =======
 files_resp = bi_utils._request('GET', '/jmreport/source/datasource/files/get', params={'reportId': PAGE_ID})
@@ -948,13 +947,12 @@ API 返回的数据必须是 JSON 数组：
 ## API 数据集端到端完整脚本示例（API 漏斗图）
 
 ```python
-import sys, json
-sys.path.insert(0, r'D:\webstorm_project_2023\vue3-jeecg-drag-design-antd4')
+import json
 from bi_utils import *
 import bi_utils
 
-API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
-TOKEN = 'your-token'
+API_BASE = '<api_base>'
+TOKEN = '<token>'
 PAGE_ID = '大屏页面ID'
 DATA_API_URL = 'https://api.jeecg.com/mock/51/beverageSales?type=salesRanking'
 
@@ -1251,10 +1249,10 @@ sys.path.insert(0, '.')
 import bi_utils
 import urllib.request
 
-API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
-TOKEN = 'your-token'
+API_BASE = '<api_base>'
+TOKEN = '<token>'
 PAGE_ID = '大屏页面ID'
-FILE_PATH = r'E:\data\default.xls'
+FILE_PATH = r'<file_path>'
 
 bi_utils.API_BASE = API_BASE
 bi_utils.TOKEN = TOKEN
@@ -1423,8 +1421,8 @@ import urllib.request
 sys.path.insert(0, '.')
 import bi_utils
 
-bi_utils.API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
-bi_utils.TOKEN = 'your-token'
+bi_utils.API_BASE = '<api_base>'
+bi_utils.TOKEN = '<token>'
 PAGE_ID = '大屏页面ID'
 PARENT_ID = '1516743332632494082'  # 示例数据集分组，本环境固定ID
 
@@ -1458,8 +1456,8 @@ def upload_file(file_path, report_id):
     with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
-upload_file(r'E:\data\products.xlsx', PAGE_ID)
-upload_file(r'E:\data\orders.xlsx', PAGE_ID)
+upload_file(r'<file_path>', PAGE_ID)
+upload_file(r'<file_path>', PAGE_ID)
 
 # ======= Step 3: 获取文件列表，提取真实表名 =======
 # ⚠️ result 是 dict，dbUrl 是 JSON 字符串，不能把 result 当 list！
@@ -1580,8 +1578,8 @@ import urllib.request
 sys.path.insert(0, '.')
 import bi_utils
 
-API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
-TOKEN = 'your-token'
+API_BASE = '<api_base>'
+TOKEN = '<token>'
 PAGE_ID = '1199929624755920896'  # 大屏页面ID
 
 bi_utils.API_BASE = API_BASE
@@ -1618,11 +1616,11 @@ def upload_file(file_path, report_id):
 
 # 上传所有文件（必须使用页面ID作为 reportId）
 print("上传 products.xlsx...")
-result1 = upload_file(r'E:\桌面\桌面2026.3.20\products.xlsx', PAGE_ID)
+result1 = upload_file(r'<file_path>', PAGE_ID)
 print(f"结果: {result1.get('success')}")
 
 print("上传 orders.xlsx...")
-result2 = upload_file(r'E:\桌面\桌面2026.3.20\orders.xlsx', PAGE_ID)
+result2 = upload_file(r'<file_path>', PAGE_ID)
 print(f"结果: {result2.get('success')}")
 
 # ======= Step 2: 创建 FILES 数据集（关键：dbSource = PAGE_ID） =======
@@ -1674,8 +1672,8 @@ print(f"\n完成！预览地址: {API_BASE}/drag/share/view/{PAGE_ID}?token={TOK
 
 ```python
 # 1. 上传多个文件
-upload_file(r'E:\data\temperature.csv', PAGE_ID)
-upload_file(r'E:\data\population.csv', PAGE_ID)
+upload_file(r'<file_path>', PAGE_ID)
+upload_file(r'<file_path>', PAGE_ID)
 
 # 2. 获取完整文件列表
 files_resp = bi_utils._request('GET', '/jmreport/source/datasource/files/get',
@@ -1706,8 +1704,8 @@ ds = bi_utils._request('POST', '/drag/onlDragDatasetHead/add', data={
 import sys, json
 sys.path.insert(0, '.')
 import bi_utils
-bi_utils.API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
-bi_utils.TOKEN = 'your-token'
+bi_utils.API_BASE = '<api_base>'
+bi_utils.TOKEN = '<token>'
 PAGE_ID = '大屏页面ID'
 
 DYNAMIC_SQL = """SELECT sex as name, COUNT(*) AS value FROM demo WHERE sex IS NOT NULL

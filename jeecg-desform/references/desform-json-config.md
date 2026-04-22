@@ -57,13 +57,28 @@
 
 ## 主表支持的 type 及可选参数
 
+**所有主表控件（除 divider/text/buttons/tabs 布局控件外）均支持以下两个通用参数：**
+
+**`remoteAPI`** — 远程取值接口地址（URL 支持 `{{上下文变量}}` 和 `${字段model}` 动态传参）：
+```json
+{"name": "真实姓名", "type": "input", "remoteAPI": "/desform/api/getName?userId={{sysUserCode}}"}
+```
+> 详见 `desform-remote-api.md`
+
+**`defaultExpr`** — 默认值表达式，支持上下文变量 `{{varName}}` 和字段引用 `$fieldModel$`，仅新增时生效：
+```json
+{"name": "操作人", "type": "input", "defaultExpr": "{{sysUserName}}"}
+{"name": "记录时间", "type": "input", "defaultExpr": "{{sysDate}} {{sysTime}}"}
+```
+> 详见 `desform-context-vars.md` — 完整变量列表、混合语法、注意事项。
+
 | type | 可选参数 | 说明 |
 |------|---------|------|
-| `input` | `required`, `placeholder`, `unique` | 单行文本 |
-| `textarea` | `required` | 多行文本 |
-| `number` | `required`, `unit`, `precision` | 数字 |
-| `integer` | `required`, `unit` | 整数 |
-| `money` | `required`, `unit` | 金额 |
+| `input` | `required`, `placeholder`, `unique`, `remoteAPI`, `fillRuleCode`, `readonly` | 单行文本 |
+| `textarea` | `required`, `remoteAPI`, `fillRuleCode`, `readonly` | 多行文本 |
+| `number` | `required`, `unit`, `precision`, `remoteAPI` | 数字 |
+| `integer` | `required`, `unit`, `remoteAPI` | 整数 |
+| `money` | `required`, `unit`, `remoteAPI` | 金额 |
 | `date` | `required`, `fmt` | 日期（fmt 默认 `yyyy-MM-dd`） |
 | `time` | `required` | 时间 |
 | `switch` | - | 开关 |
@@ -80,14 +95,14 @@
 | `phone` | `required` | 手机 |
 | `email` | `required` | 邮箱 |
 | `area-linkage` | `required` | 省市级联 |
-| `table-dict` | `dictTable`, `dictCodeCol`, `dictTextCol`, `style`, `multiple` | 表字典 |
-| `select-tree` | `categoryCode`, `required`, `multiple` | 下拉树 |
+| `table-dict` | `dictTable`, `dictCodeCol`, `dictTextCol`, `style`, `multiple`, `queryScope` | 表字典（options 内置 dictTable/dictCode/dictText/queryScope；**style=popup 时 dictTextCol 会被替换为该控件自身的 model**；queryScope=database 时仅支持 style=select） |
+| `select-tree` | `categoryCode`(必填), `dataFrom`(必填), `tableConf`, `required`, `multiple` | 下拉树；**`categoryCode` 和 `dataFrom` 必须显式传入，不可省略**；`dataFrom="category"` 时传 `categoryCode`（默认 `"B02"`）；`dataFrom="table"` 时传 `tableConf`（含 name/code/text/pidField/rootPid/leaf/converIsLeafVal） |
 | `file-upload` | `required` | 文件上传 |
 | `imgupload` | `required` | 图片上传 |
 | `hand-sign` | `required` | 手写签名 |
 | `auto-number` | `prefix` | 自动编号 |
 | `barcode` | `sourceModel`, `codeType`(`barcode`/`qrcode`), `maxWidth` | 条码/二维码 |
-| `capital-money` | `moneyWidgetKey` | 大写金额（关联金额字段 key） |
+| `capital-money` | `moneyField`, `moneyWidgetKey` | 大写金额（关联 money/formula/summary 字段） |
 | `text-compose` | `expression` | 文本组合（$model$ 引用字段） |
 | `location` | `required`, `defaultCurrent`, `showMap` | 定位 |
 | `map` | `height`, `zoom`, `lng`, `lat` | 地图（百度地图） |
@@ -101,22 +116,27 @@
 | `tabs` | `tabLabels`(数组), `tabType`, `position` | 标签页容器（见下方 tabs 说明） |
 | `link-record` | `sourceCode`, `titleField`, `showFields`, `showMode`, `showType` | 关联记录 |
 | `link-field` | `linkRecordKey`, `showField`, `fieldType`, `fieldOptions` | 他表字段 |
-| `summary` | `linkTable`, `field`, `summaryType` | 汇总（子表列求和等） |
+| `summary` | `linkTable`, `field`, `summaryType`, `filter` | 汇总（summaryType: inner-sum/inner-average/inner-max/inner-min/inner-record-count/inner-completed-count/inner-incompletely-count/inner-date-earliest/inner-date-latest） |
 | `sub-table-design` | `fields`(必填，子控件数组) | 设计子表（见下方子表说明） |
 
 ---
 
 ## 重要注意事项（AI 生成必读）
 
-### 1. capital-money 必须关联金额控件
+### 1. capital-money 关联金额控件
 
-`capital-money`（大写金额）的 `moneyWidgetKey` 必须填写实际金额控件的 `key`。
+`capital-money`（大写金额）可关联 `money`、`formula`、`summary` 三种类型的控件。关联优先级：
 
-**自动关联：** `desform_creator.py` 会自动查找前面最近的 `money` 控件并关联，无需手动指定 `moneyWidgetKey`。只需确保 `capital-money` 字段出现在其关联的 `money` 字段之后即可。
+1. **`moneyField`（推荐）**：传入目标字段的中文名，脚本自动解析为对应控件的 key。适用于大写金额与目标字段不相邻的场景。
+2. **`moneyWidgetKey`**：直接传入控件 key（适用于已知 key 的场景）。
+3. **自动查找（兜底）**：如果两者都未指定，脚本向前查找最近的 `money`/`formula`/`summary` 控件。
 
 ```json
 {"name": "预算总额", "type": "money", "required": true, "unit": "万元"},
-{"name": "大写金额", "type": "capital-money"}
+{"name": "总金额", "type": "formula", "mode": "CUSTOM",
+ "expression": "$预算总额$*1.13", "decimal": 2, "unit": "元"},
+{"name": "其他字段", "type": "input"},
+{"name": "大写金额", "type": "capital-money", "moneyField": "总金额"}
 ```
 
 ### 2. formula 表达式使用字段中文名引用（自动解析）
@@ -202,9 +222,11 @@
 | 3 | `[{span:8, list:[...]}, {span:8, list:[...]}, {span:8, list:[...]}]` | 8 |
 | 4 | `[{span:6, list:[...]}, ...(共4个)]` | 6 |
 
-`make_sub_table()` 和 `desform_creator.py` 已自动处理：根据 `columnNumber` 生成对应数量的列，并将子控件轮流分配到各列。
+`make_sub_table()` 和 `desform_creator.py` 已自动处理：根据 `columnNumber` 生成对应数量的列，并将子控件**顺序填充**到各列（先填满第1列，再填第2列……），确保表格视图的列顺序与字段定义顺序一致。当字段较多时，可将 `columnNumber` 设为 3 或 4 以获得更紧凑的设计视图布局。
 
 ### 子表内支持的 type
+
+> **注意：** 子表内只支持以下 type，不要凭空捏造不存在的类型。数字用 `number`，整数用 `integer`，多行文本用 `textarea`。
 
 **基础类型：**
 
@@ -225,7 +247,7 @@
 | `select` | `options`(必填), `required`, `col_width`, `dictCode` | 下拉选择 |
 | `radio` | `options`(必填), `required`, `col_width`, `dictCode` | 单选 |
 | `checkbox` | `options`(必填), `required`, `col_width`, `dictCode` | 多选 |
-| `table-dict` | `dictTable`, `dictCodeCol`, `dictTextCol`, `required`, `col_width` | 表字典 |
+| `table-dict` | `dictTable`, `dictCodeCol`, `dictTextCol`, `queryScope`, `required`, `col_width` | 表字典（options 内置 dictTable/dictCode/dictText/queryScope；queryScope=database 时仅支持 style=select） |
 | `select-tree` | `categoryCode`, `required`, `col_width` | 下拉树 |
 
 **系统类型：**
@@ -410,18 +432,35 @@
 
 ## 调用示例
 
+> ⛔ **方式选择（必须遵守）：字段数 ≤50 → stdin 管道；字段数 >50 → 临时文件。禁止在字段数 ≤50 时使用临时文件。**
+
 ```bash
+# ✅ 默认方式（字段数 ≤50）：stdin 管道，无需临时文件
+echo '<json_config>' | python "<skill目录>/scripts/desform_creator.py" \
+    --api-base <api_base> \
+    --token <token> \
+    --config -
+
+# 如需覆盖已存在的表单（加 --force）
+echo '<json_config>' | python "<skill目录>/scripts/desform_creator.py" \
+    --api-base <api_base> \
+    --token <token> \
+    --config - --force
+```
+
+```bash
+# ⚠️ 仅当字段数 >50 时才使用临时文件方式
 # 1. Write 工具生成 JSON 配置文件
 # 2. 执行脚本
 python "<skill目录>/scripts/desform_creator.py" \
-    --api-base http://192.168.1.233:3100/jeecgboot \
-    --token eyJhbGciOiJIUzI1NiJ9... \
+    --api-base <api_base> \
+    --token <token> \
     --config eng_acceptance.json
 
 # 如需覆盖已存在的表单
 python "<skill目录>/scripts/desform_creator.py" \
-    --api-base http://192.168.1.233:3100/jeecgboot \
-    --token eyJhbGciOiJIUzI1NiJ9... \
+    --api-base <api_base> \
+    --token <token> \
     --config eng_acceptance.json \
     --force
 

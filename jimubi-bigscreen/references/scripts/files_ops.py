@@ -31,8 +31,8 @@ files_ops.py — FILES 多文件数据集操作预置脚本
       --fields "name:大区:String,type:品类:String,sales:销售额:Integer"
 
 示例（完整一步）:
-  py files_ops.py create-bind http://192.168.1.66:8080/jeecg-boot TOKEN 1202125307063787520 \\
-      --files E:/data/products.xlsx E:/data/orders.xlsx \\
+  py files_ops.py create-bind <api_base> <token> <page_id> \\
+      --files products.xlsx orders.xlsx \\
       --join-on product_id \\
       --group-by region,category \\
       --agg amount \\

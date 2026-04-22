@@ -19,8 +19,12 @@ base_save(report_id, designer, ..., freeze="A3", freezeLineColor="red")
 ## 预览页工具条（rpbar）
 
 ```python
-base_save(report_id, designer, ..., rpbar={"show": True, "pageSize": "", "btnList": [1,2,3,4,5,6,7,8,9], "childrenBtnList": [7.1,7.3,7.4,8.3,8.4,8.5,8.6]})
+base_save(report_id, designer, ..., rpbar={"show": True, "pageSize": "", "btnList": [1,2,3,4,5,6,7,8,9], "childrenBtnList": [7.1,7.2,7.3,7.4,8.1,8.2,8.3,8.4,8.5,8.6]})
 ```
+
+> **关键规则**：`btnList` 和 `childrenBtnList` 存的是「**显示**」的按钮列表，不是隐藏列表。
+> 要隐藏某个按钮，从列表中删除对应编号即可；`[]` 表示全部隐藏。
+> 默认全显示时传完整列表（如上）。
 
 | 主按钮 | | | |
 |-------|------|-------|------|
@@ -31,8 +35,18 @@ base_save(report_id, designer, ..., rpbar={"show": True, "pageSize": "", "btnLis
 | 子按钮 | | | |
 |-------|------|-------|------|
 | 7.1 默认打印 | 7.2 打印当前页 | 8.1 导出Excel | 8.2 大数据Excel |
-| 7.3 分页缩放 | 7.4 整体缩放 | 8.3 导出PDF | 8.4 PDF图像 |
+| 7.3 分页缩放打印 | 7.4 整体缩放打印 | 8.3 导出PDF | 8.4 导出PDF图像 |
 | | | 8.5 导出图像 | 8.6 导出WORD |
+
+**示例：只保留导出、去掉打印及所有分页导航**
+```python
+rpbar={
+    "show": True,
+    "pageSize": "20",
+    "btnList": [3, 4, 8, 9],                          # 去掉 1,2,5,6,7
+    "childrenBtnList": [8.1, 8.2, 8.3, 8.5, 8.6],    # 去掉 7.x 和 8.4
+}
+```
 
 rpbar 必须是 dict 对象，不能 json.dumps()。
 
@@ -98,3 +112,4 @@ rpbar 必须是 dict 对象，不能 json.dumps()。
 | `multi-sheet.md` | 多 Sheet 接口（添加/重命名/保存/查询） |
 | `json-dataset-cells.md` | JSON 数据集绑定 |
 | `troubleshooting.md` | 报错排查 |
+| `mock-apis.md` | 官方示例 Mock API（字段未确定时用） |

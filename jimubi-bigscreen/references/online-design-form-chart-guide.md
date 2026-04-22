@@ -1154,22 +1154,21 @@ for i, f in enumerate(fields):
 
 **⚠️ 执行规范（强制）：**
 1. **必须 Write 脚本到文件，禁止 `py -c "..."`** —— 因为 `!=` 在 shell 中被转义为 `\!=` 导致 SyntaxError
-2. **`sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))`** —— 用脚本自身所在目录，不能用 `.`（`.` 取决于 shell 启动目录，不可靠）
-3. **`cp bi_utils.py` 目标必须用绝对路径** —— `"C:/Users/25067/bi_utils.py"`，不能用 `.`
+2. **无需 `sys.path.insert`** —— `py script.py` 运行时 Python 自动将脚本所在目录加入 `sys.path`，只需确保 `bi_utils.py` 与脚本在同一目录
+3. **`cp bi_utils.py` 目标必须用绝对路径** —— `"C:/Users/<用户名>/bi_utils.py"`，不能用 `.`
 4. **cp 和 Write 脚本并行** —— 同一轮工具调用，节省一轮
 
 **正确执行模板（2轮）：**
 ```
-轮次1（并行）: cp bi_utils.py "C:/Users/25067/bi_utils.py" && ls 验证  +  Write 脚本文件
-轮次2: cd C:/Users/25067 && py 脚本.py && echo URL | clip.exe && rm 脚本.py bi_utils.py
+轮次1（并行）: cp bi_utils.py "C:/Users/<用户名>/bi_utils.py" && ls 验证  +  Write 脚本文件
+轮次2: cd C:/Users/<用户名> && py 脚本.py && echo URL | clip.exe && rm 脚本.py bi_utils.py
 ```
 
 ### 11.6 脚本化创建完整示例（Online 表单 → 饼状图，经验证可用）
 
 ```python
-import os, sys, json, uuid
+import sys, json, uuid
 sys.stdout.reconfigure(encoding='utf-8')
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # ⚠️ 用脚本所在目录，不能用 '.'
 import bi_utils
 
 bi_utils.API_BASE = 'http://your-api.com'
@@ -1302,7 +1301,7 @@ print(f'创建成功！组件: {form_name}-饼状图')
 | **`filter.customTime` 缺失** | `initCompConfig` 中读取 `config.filter.customTime`，若缺失则 `customTime && customTime.length > 1` 报空指针 | `filter` 中必须加 `'customTime': []` |
 | **`save_page` 报错或覆盖页面** | 调用 `bi_utils.save_page(page_id, template)` 传了 template 参数（该参数不存在） | 必须用 `bi_utils._page_components[page_id] = tmpl` 赋值后再 `bi_utils.save_page(page_id)` |
 | **`py -c "..."` 内联脚本 SyntaxError：`\!=`** | shell 把 `!=` 转义为 `\!=`，Python 解析报 `unexpected character after line continuation character` | **禁止用 `py -c`**，必须 Write 脚本到文件再 `py script.py` |
-| **`ModuleNotFoundError: No module named 'bi_utils'`** | `sys.path.insert(0, '.')` 中的 `.` 解析为 shell 启动目录，不是脚本所在目录 | 脚本开头用 `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))` 动态获取脚本目录；且 `cp bi_utils.py` 目标必须与脚本文件在同一目录（绝对路径） |
+| **`ModuleNotFoundError: No module named 'bi_utils'`** | `bi_utils.py` 与脚本文件不在同一目录，或脚本用 `py -` stdin 方式运行 | 必须先 Write 脚本文件再 `py script.py`；`cp bi_utils.py` 目标必须与脚本文件在同一目录（绝对路径）。无需 `sys.path.insert` |
 | **设计器表单弹窗字段为空** | `config.formType` 未设置或值错误，前端调用 `/online/cgform/field/listByHeadId` 而非 `/desform/api/fields/{code}` | 必须设置 `formType: 'design'`（让前端调用设计器表单接口） |
 | **设计器表单弹窗字段为空（进阶排查）** | `config.formId`/`tableName` 传了表单 ID（数值）而非表单 code（字符串） | design 模式的 `formId` 和 `tableName` 都必须传**表单 code**（如 `ru_ku_dan_nbc0`），不是表单 ID |
 | **弹窗显示了字段，但未绑定到维度/数值栏位** | 缺少 `nameFields` 和 `valueFields` 配置，前端加载字段后用户手动拖拽但未保存 | 必须手动设置 `nameFields`（维度）和 `valueFields`（数值）数组，并保存到组件 config |
@@ -1319,8 +1318,7 @@ print(f'创建成功！组件: {form_name}-饼状图')
 
 ```python
 # patch_online_comps.py — 修复页面上所有 dataType=4 组件的缺失字段
-import sys, json, time
-sys.path.insert(0, 'C:/Users/25067')
+import json, time
 import bi_utils
 
 t0 = time.time()

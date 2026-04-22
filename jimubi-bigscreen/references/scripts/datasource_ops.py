@@ -12,22 +12,22 @@
   py datasource_ops.py detail <API_BASE> <TOKEN> --id "707437208002265088"
 
   # 新建 JDBC 数据源
-  py datasource_ops.py create <API_BASE> <TOKEN> --name "测试库" --code "test_db" --db-type MYSQL5.7 --host 192.168.1.66 --port 3306 --db mydb --user root --password root
+  py datasource_ops.py create <API_BASE> <TOKEN> --name "测试库" --code "test_db" --db-type MYSQL5.7 --host <db_host> --port 3306 --db mydb --user root --password root
 
   # 新建 NoSQL 数据源（MongoDB）
-  py datasource_ops.py create <API_BASE> <TOKEN> --name "MongoDB数据源" --code "mongodb_jeecg" --db-type mongodb --host 192.168.1.188 --port 27017 --db jeecg --user jeecg --password 123456
+  py datasource_ops.py create <API_BASE> <TOKEN> --name "MongoDB数据源" --code "mongodb_jeecg" --db-type mongodb --host <db_host> --port 27017 --db jeecg --user jeecg --password 123456
 
   # 新建 NoSQL 数据源（Redis）
-  py datasource_ops.py create <API_BASE> <TOKEN> --name "Redis数据源" --code "redis_ds" --db-type redis --host 192.168.1.188 --port 6379
+  py datasource_ops.py create <API_BASE> <TOKEN> --name "Redis数据源" --code "redis_ds" --db-type redis --host <db_host> --port 6379
 
   # 新建 NoSQL 数据源（Elasticsearch）
-  py datasource_ops.py create <API_BASE> <TOKEN> --name "ES数据源" --code "es_ds" --db-type es --host 192.168.1.188 --port 9200
+  py datasource_ops.py create <API_BASE> <TOKEN> --name "ES数据源" --code "es_ds" --db-type es --host <db_host> --port 9200
 
   # 编辑数据源 —— 按名称查找，追加 JDBC 参数（解决 SSL 证书校验问题等）
   py datasource_ops.py edit <API_BASE> <TOKEN> --name "jeecgbootbpm" --add-jdbc-param "trustServerCertificate=true"
 
   # 编辑数据源 —— 按 ID 查找，直接替换完整 dbUrl
-  py datasource_ops.py edit <API_BASE> <TOKEN> --id "1199284605753712640" --set-url "jdbc:sqlserver://192.168.1.188:1433;SelectMethod=cursor;DatabaseName=jeecgbootbpm;trustServerCertificate=true;"
+  py datasource_ops.py edit <API_BASE> <TOKEN> --id "<datasource_id>" --set-url "jdbc:sqlserver://<db_host>:1433;SelectMethod=cursor;DatabaseName=jeecgbootbpm;trustServerCertificate=true;"
 
   # 编辑数据源 —— 修改用户名/密码
   py datasource_ops.py edit <API_BASE> <TOKEN> --name "jeecgbootbpm" --user newuser --password newpass
@@ -36,7 +36,7 @@
   py datasource_ops.py test <API_BASE> <TOKEN> --id "707437208002265088"
 
   # 测试数据源连接（用参数）
-  py datasource_ops.py test <API_BASE> <TOKEN> --db-type MYSQL5.7 --host 192.168.1.66 --port 3306 --db mydb --user root --password root
+  py datasource_ops.py test <API_BASE> <TOKEN> --db-type MYSQL5.7 --host <db_host> --port 3306 --db mydb --user root --password root
 
   # 删除数据源
   py datasource_ops.py delete <API_BASE> <TOKEN> --id "707437208002265088"
@@ -227,9 +227,9 @@ NOSQL_TYPES = {'mongodb', 'redis', 'es'}
 
 # NoSQL dbUrl 模板
 NOSQL_URL_TEMPLATES = {
-    'mongodb': '{host}:{port}/{db}',   # 如 192.168.1.188:27017/jeecg
-    'redis': '{host}:{port}',           # 如 192.168.1.188:6379
-    'es': '{host}:{port}',              # 如 192.168.1.188:9200
+    'mongodb': '{host}:{port}/{db}',   # 如 <db_host>:27017/jeecg
+    'redis': '{host}:{port}',           # 如 <db_host>:6379
+    'es': '{host}:{port}',              # 如 <db_host>:9200
 }
 
 # 所有支持的数据库类型（JDBC + NoSQL）

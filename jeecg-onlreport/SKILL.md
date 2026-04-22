@@ -1,258 +1,299 @@
 ---
 name: jeecg-onlreport
-description: Use when user asks to create/edit Online reports, SQL reports, data reports, or says "创建报表", "生成报表", "新建报表", "做一个报表", "online报表", "SQL报表", "数据报表", "统计报表", "查询报表", "create report", "generate report", "data report". Also triggers when user describes report requirements like "做一个销售统计报表" or mentions SQL-driven data display like "通过SQL查询生成报表".
+description: Use when user asks to create/edit/query Online reports, SQL reports, data reports, or says "创建报表", "生成报表", "新建报表", "查询报表", "online报表", "SQL报表", "数据报表", "统计报表", "create report", "generate report", "data report". Also triggers when user describes report requirements like "做一个销售统计报表", mentions JeecgBoot cgreport/online report, or says "查看现有报表" / "列出所有报表". This skill handles Online 报表 (SQL-driven data display/reports), not Online forms (cgform) or designer forms (desform).
 ---
 
 # JeecgBoot Online 报表 AI 自动生成器
 
-将自然语言的报表需求描述转换为 Online 报表配置，并通过 API 在 JeecgBoot 系统中自动创建/编辑报表。
+将自然语言描述的报表需求，转换为 Online 报表配置，并通过 API 自动创建/编辑/查询。
 
-> **重要：本 skill 处理「Online 报表」（SQL 驱动的数据报表），不涉及「Online 表单」（cgform）或「设计器表单」（desform）。**
+> **重要**：本 skill 处理「Online 报表」（SQL 驱动的只读数据报表），不涉及 Online 表单（cgform）或设计器表单（desform）。
 
-## 前置条件
+## 核心能力
 
-用户必须提供以下信息（或由 AI 引导确认）：
+| 操作 | 说明 |
+|------|------|
+| **查询报表** | 列出系统中所有 Online 报表，查看字段和参数配置 |
+| **新增报表** | 从自然语言需求或 SQL 创建报表 |
+| **编辑报表** | 修改现有报表的字段、参数、SQL |
 
-1. **API 地址**：JeecgBoot 后端地址（如 `https://boot3.jeecg.com/jeecgboot`）
-2. **X-Access-Token**：JWT 登录令牌（从浏览器 F12 获取）
+---
 
-如果用户未提供，提示：
-> 请提供 JeecgBoot 后端地址和 X-Access-Token（从浏览器 F12 → Network → 任意请求的 Request Headers 中复制）。
+## Step 0: 收集凭证
 
-## 交互流程
+**每次操作前必须收集以下信息**（如果用户已提供则跳过）：
 
-### Step 0: 判断操作类型
+1. **API 地址** — JeecgBoot 后端地址，如 `https://boot3.jeecg.com/jeecgboot`
+2. **X-Access-Token** — JWT 令牌，从浏览器 F12 → Network → 任意请求的 Request Headers 中复制
 
-| 用户意图关键词 | 操作类型 |
-|---------------|---------|
-| 创建/新建/做一个/生成报表 | **新增报表** → Step 1A |
-| 修改报表/改字段/加字段/删字段 | **编辑报表** → Step 1B |
+用户未提供时提示：
+> 请提供 JeecgBoot 后端地址和 X-Access-Token。
 
-### Step 1A: 新增报表 — 解析需求
+---
+
+## Step 1: 判断操作类型
+
+根据用户意图判断操作类型：
+
+| 用户意图关键词 | 操作 |
+|---------------|------|
+| 列出报表 / 查询报表 / 查看所有报表 / 有哪些报表 | **查询报表** → Step 2 |
+| 创建 / 新建 / 做一个 / 生成报表 | **新增报表** → Step 3 |
+| 修改 / 编辑 / 改字段 / 加字段 / 删除字段 | **编辑报表** → Step 4 |
+
+> ⚠️ **菜单挂载与角色授权为可选操作，不得默认执行：**
+> - 用户只说"创建报表"→ 仅执行 `create_report` + `validate_report`，**不挂载菜单，不授权角色**
+> - 用户明确说"挂载到菜单"、"绑定菜单"、"授权给 xxx 角色"等关键词 → 才调用 `publish_report` 或 `create_and_publish`
+> - 违反此规则会导致：超出用户意图、产生不必要的菜单记录、因全量拉取权限列表而显著增加耗时
+
+---
+
+## Step 2: 查询报表
+
+> **API 初始化（统一入口）**：所有 Python 操作前必须先调用 `init_api`，与 `desform_utils` 保持一致：
+> ```python
+> import sys
+> sys.path.insert(0, r'<skill目录>/scripts')
+> from onlreport_api import init_api
+> init_api('<api_base>', '<token>')
+> ```
+> 后续按需导入：`list_all_reports_table`, `list_fields_by_code_table`, `list_reports`, `query_report`, `list_fields`, `list_params`, `parse_sql`, `create_report`, `edit_report`, `gen_id`, `create_menu`, `get_role_id_by_code`, `grant_menu_to_role`, `add_data_rule`, `query_data_rules`
+
+### 2.1 快速列表（语法糖）
+
+**首选方式**，调用 `list_all_reports_table()` 一次返回所有报表的名称/编码/SQL 表格，自动分页遍历：
+
+```python
+from onlreport_api import init_api, list_all_reports_table
+init_api('<api_base>', '<token>')
+list_all_reports_table()
+```
+
+返回 Markdown 表格，仅含三个字段（报表名称、报表编码、报表 SQL），方便 AI 直接使用：
+
+```
+| 报表名称 | 报表编码 | 报表 SQL |
+|----------|----------|----------|
+| 关联报表查询 | fz_sql | SELECT u.id, u.username ... |
+| ... | ... | ... |
+```
+
+或通过 CLI：
+```bash
+python "<skill目录>/scripts/onlreport_api.py" \
+    --api-base <URL> --token <TOKEN> -a list-table
+```
+
+### 2.2 按编码查字段（语法糖）
+
+**首选方式**，调用 `list_fields_by_code_table(code)` 直接通过报表编码查字段：
+
+```python
+from onlreport_api import init_api, list_fields_by_code_table
+init_api('<api_base>', '<token>')
+list_fields_by_code_table('fz_sql')
+```
+
+返回 Markdown 表格，仅含三个字段（字段编码、字段文本、字段类型），自动分页：
+
+```
+| 字段编码 | 字段文本(显示名) | 字段类型 |
+|----------|-----------------|----------|
+| id | ID | String |
+| username | username | String |
+| realname | realname | String |
+```
+
+或通过 CLI：
+```bash
+python "<skill目录>/scripts/onlreport_api.py" \
+    --api-base <URL> --token <TOKEN> -a fields-table --code fz_sql
+```
+
+底层 API：`GET /online/cgreport/item/listByHeadCode?headCode={code}`
+
+### 2.3 查询报表详情
+
+用户指定报表 ID 或编码后，依次查询：
+
+```
+GET /online/cgreport/head/queryById?id={headId}        # 报表头配置
+GET /online/cgreport/item/listByHeadId?headId={headId}  # 字段列表
+GET /online/cgreport/param/listByHeadId?headId={headId}  # 参数列表
+```
+
+展示完整配置供用户参考，询问是否需要修改。
+
+---
+
+## Step 3: 新增报表
+
+### 3.1 收集需求
 
 从用户描述中提取：
 
-| 信息 | 默认值 | 示例 |
-|------|--------|------|
+| 信息 | 来源 | 示例 |
+|------|------|------|
 | 报表编码 (code) | 自动生成 snake_case | `sales_report` |
 | 报表名称 (name) | 用户指定 | "销售统计报表" |
-| SQL 语句 (cgrSql) | 从需求推导或用户提供 | `SELECT ... FROM ...` |
-| 数据源 (dbSource) | 空（默认数据源） | `second_db` |
+| SQL 语句 (cgrSql) | 用户提供 SQL 或描述需求 | `SELECT ... FROM ...` |
+| 数据源 (dbSource) | 用户指定，空=默认 | `second_db` |
 
-**两种 SQL 来源：**
+**创建前必须校验报表编码唯一性**，调用 `check_code_available(code)` 或直接调用接口：
+```
+GET /sys/duplicate/check?tableName=onl_cgreport_head&fieldName=code&fieldVal={code}
+```
+返回 `success: true` 表示编码可用，`false` 表示已被占用，需换一个。`create_report()` 内部已自动调用此校验。
 
-1. **用户直接提供 SQL** — 直接使用，调用 parseSql 解析字段
-2. **用户描述需求，AI 推导 SQL** — 需要用户确认数据库表结构或已知表名
+**SQL 有两种来源：**
+1. **用户直接提供 SQL** → 直接使用
+2. **用户描述需求** → 需要用户确认表名和字段（调用 parseSql 验证）
 
-### Step 1B: 编辑报表 — 查询现有配置
+### 3.2 调用 parseSql 解析字段
 
-1. 用户提供报表 ID 或编码
-2. 通过 API 查询现有报表配置：`GET /online/cgreport/head/queryById?id={headId}`
-3. 通过 API 查询字段列表：`GET /online/cgreport/item/listByHeadId?cgrheadId={headId}`
-4. 通过 API 查询参数列表：`GET /online/cgreport/param/listByHeadId?cgrheadId={headId}`
-5. 展示现有配置，根据用户需求进行修改
-
-### Step 2: 调用 parseSql 解析字段
-
-**必须先调用 parseSql 接口获取 SQL 的字段和参数列表：**
+**必须先调用 parseSql 获取字段和参数列表：**
 
 ```
 GET /online/cgreport/head/parseSql?sql={urlEncodedSql}&dbKey={dbKey}
 ```
 
-- `sql`：URL 编码后的 SQL 语句
-- `dbKey`：数据源编码，默认数据源可不传
+返回结构：字段列表 `fields[]` 和参数列表 `params[]`。
 
-**实测返回结构（已验证）：**
+> **为什么必须先调用 parseSql？** 因为 SQL 中的 `${paramName}` 会被解析为参数列表，字段列表是后续构造 items 配置的依据。
+
+#### parseSql 失败处理
+
+SQL 包含复杂函数（如 `name like concat('%','${username}','%')`）时会解析失败。解决方案：
+
+1. 先将问题条件去掉，用简化 SQL 解析
+2. 解析成功后，在 SQL 参数 tab 手工新增参数名（如 `username`，对应 `${username}`）
+3. 最终保存时 cgrSql 使用完整的原始 SQL
+
+### 3.3 智能字段配置
+
+根据字段名语义，自动推导每个字段的配置。
+
+#### 字段通用属性
+
+> **searchMode 说明**：有效值只有 `single`（单值查询）和 `group`（范围查询）两种。String 类型的 `single` 查询在后端会自动执行 LIKE 模糊匹配；Date/Datetime 类型用 `group` 实现范围选择。有字典配置时下拉选择自动生效。
+
+| 字段名模式 | fieldTxt（中文名） | fieldType | isShow | isSearch | searchMode | isOrder | isTotal |
+|-----------|------------------|-----------|--------|----------|------------|---------|---------|
+| id / 主键 | ID | String | **0**（隐藏） | null | - | null | - |
+| name / title | 名称/标题 | String | 1 | 1 | `single` | null | - |
+| code / no | 编码/编号 | String | 1 | 1 | `single` | null | - |
+| status | 状态 | String | 1 | 1 | `single` | null | - |
+| type / category | 类型/分类 | String | 1 | 1 | `single` | null | - |
+| amount / money / price / fee | 金额/费用/价格 | BigDecimal | 1 | null | - | 1 | **"1"** |
+| count / qty / num / number | 数量 | Integer | 1 | null | - | 1 | **"1"** |
+| date / sale_date | 日期 | Date | 1 | 1 | `group` | 1 | - |
+| time / datetime | 时间 | Datetime | 1 | 1 | `group` | 1 | - |
+| create_by / update_by | 创建人/更新人 | String | **0**（隐藏） | null | - | null | - |
+| create_time / update_time | 创建时间/更新时间 | Datetime | 1 | null | - | 1 | - |
+| sex | 性别 | String | 1 | 1 | `single` | null | - |
+| age | 年龄 | Integer | 1 | null | - | null | - |
+| email | 邮箱 | String | 1 | null | - | null | - |
+| phone / mobile / tel | 电话/手机号 | String | 1 | null | - | null | - |
+| address | 地址 | String | 1 | null | - | null | - |
+| remark / description / content | 备注/描述 | String | 1 | null | - | null | - |
+| dept / org | 部门/组织 | String | 1 | 1 | `single` | null | - |
+| sys_org_code / tenant_id | 系统字段 | String | **0**（隐藏） | null | - | null | - |
+| 图片/附件字段 | 图片 | Image | 1 | null | - | null | - |
+
+> **parseSql 返回的 fieldType 通常是 String**，AI 必须根据字段名语义修正为正确的类型（Date/Datetime/BigDecimal/Integer/Long/Image 等）。
+>
+> **isOrder/isSearch 为 null 表示"否"**，不要用 `0`，否则可能影响前端展示。
+
+#### 字典配置 (dictCode)
+
+**普通字典**（输入字典 code）：
+- 常用系统字典：`sex`、`priority`、`valid_status`、`urgent_level`、`yn`
+
+**SQL 字典**（查另一张表）：格式固定为 `SELECT id 'value', name 'text' FROM table_name`，字段别名必须是 `value` 和 `text`：
+```sql
+SELECT username AS value, realname AS text FROM sys_user
+```
+
+**replaceVal 格式**（导出时文本替换）：`显示文本_数据库值` 逗号分隔，例如 `男_1,女_2`
+
+#### 分组表头 (groupTitle)
+
+同一分组的多个字段设置相同的 groupTitle，可实现多级表头：
 ```json
-{
-  "success": true,
-  "message": "",
-  "code": 200,
-  "result": {
-    "fields": [
-      {
-        "id": "2032684046700560386",
-        "cgrheadId": null,
-        "fieldName": "id",
-        "fieldTxt": "id",
-        "fieldWidth": null,
-        "fieldType": "String",
-        "searchMode": null,
-        "isOrder": null,
-        "isSearch": null,
-        "dictCode": null,
-        "fieldHref": null,
-        "isShow": 1,
-        "orderNum": 1,
-        "replaceVal": null,
-        "isTotal": null,
-        "createBy": null,
-        "createTime": null,
-        "updateBy": null,
-        "updateTime": null,
-        "groupTitle": null
-      }
-    ],
-    "params": []
-  },
-  "timestamp": 1773464616834
+{"fieldName": "q1_amount", "groupTitle": "第一季度"}
+{"fieldName": "q1_count",  "groupTitle": "第一季度"}
+```
+
+#### 字段跳转 (fieldHref)
+
+支持以下语法：
+
+| 用法 | 示例 |
+|------|------|
+| 跳转到菜单路径 | `/system/user` 或 `/system/user?sex=1` |
+| 跳转到 Vue 组件 | `/jeecg/helloworld.vue?id=${id}` |
+| 跳转到外部链接 | `http://jeecg.com?id=${id}` |
+| 动态参数（当前行字段值） | `http://jeecg.com?sex=${sex}` |
+| JS 表达式（双花括号） | `/account/center?name=${name}&age={{${age} + 100}}` |
+| 获取当前登录 Token | `http://api.example.com?token={{ACCESS_TOKEN}}` |
+
+---
+
+## Step 4: 编辑报表
+
+### 4.1 查询现有配置
+
+1. 用户提供报表 ID 或编码
+2. 依次调用 queryById、listByHeadId（字段）、listByHeadId（参数）
+3. 展示现有配置
+
+### 4.2 确认修改需求
+
+根据用户需求，确定：
+- 哪些字段需要修改 isShow/isSearch/orderNum 等
+- 哪些字段需要新增或删除
+- SQL 是否需要调整
+
+### 4.3 构造 editAll 请求
+
+editAll 使用 **PUT** 方法（非 POST）。
+
+与新增类似，但需注意：
+- `head.id` = 现有报表 ID（必填）
+- `deleteItemIds` = 要删除的字段 ID 逗号拼接
+- `deleteParamIds` = 要删除的参数 ID 逗号拼接
+
+#### 替换参数的完整流程
+
+编辑时若需要**替换参数**（如从无参改为有参，或修改参数配置），步骤：
+
+1. 查询旧参数列表，收集所有旧参数 ID
+2. 新参数对象必须包含 `id`（`gen_id()` 生成）和 `headId`（报表 ID）
+3. 在 payload 中设置 `deleteParamIds` 删除旧参数，`params` 传入新参数
+
+```python
+old_params = api_request(f'/online/cgreport/param/listByHeadId?headId={head_id}')['result']
+delete_param_ids = ','.join(p['id'] for p in old_params) if old_params else None
+
+new_params = [
+    {"id": gen_id(), "headId": head_id, "paramName": "log_type", "paramTxt": "日志类型", "paramValue": "1", "orderNum": 1}
+]
+
+payload = {
+    "head": {...},
+    "items": items,
+    "params": new_params,
+    "deleteParamIds": delete_param_ids   # 有旧参数时必传，否则会重复
 }
 ```
 
-### Step 3: 智能字段配置
+> **注意**：editAll 的 params 中每条记录必须有 `id` 和 `headId`，否则保存后参数不生效。新增时（`create_report`）的 params 可以不带这两个字段。
 
-根据字段名和业务语义，AI 自动推导每个字段的配置：
+---
 
-#### 3.1 字段显示名称 (fieldTxt)
+## Step 5: 展示摘要并确认
 
-parseSql 返回的 fieldTxt 默认等于 fieldName，AI 需要根据语义翻译为中文：
-
-| 字段名模式 | 推导中文名 |
-|-----------|-----------|
-| id | ID/主键 |
-| name / title | 名称/标题 |
-| code / no | 编码/编号 |
-| status | 状态 |
-| type / category | 类型/分类 |
-| amount / money / price | 金额/费用/价格 |
-| count / qty / num | 数量 |
-| date / time | 日期/时间 |
-| create_by | 创建人 |
-| create_time | 创建时间 |
-| update_by | 更新人 |
-| update_time | 更新时间 |
-| sex | 性别 |
-| age | 年龄 |
-| email | 邮箱 |
-| phone / mobile / tel | 电话/手机号 |
-| address | 地址 |
-| remark / content / description | 备注/内容/描述 |
-| dept / org | 部门/组织 |
-| salary | 薪资 |
-| birthday | 生日 |
-
-#### 3.2 是否显示 (isShow)
-
-| 规则 | isShow |
-|------|--------|
-| 业务字段（默认） | 1（显示） |
-| id / 主键字段 | 0（隐藏）— 通常不在报表中展示 |
-| create_by / update_by | 0（隐藏）— 系统字段 |
-| create_time / update_time | 视需求而定 |
-| sys_org_code / tenant_id | 0（隐藏）— 系统字段 |
-
-#### 3.3 是否查询 (isSearch) + 查询模式 (searchMode)
-
-| 字段类型 | isSearch | searchMode | 说明 |
-|---------|----------|------------|------|
-| 名称/标题等文本 | 1 | `like` | 模糊查询 |
-| 状态/类型/分类 | 1 | `single` | 精确匹配 |
-| 日期/时间 | 1 | `range` | 范围查询（开始~结束） |
-| 金额/数量等数值 | 0 | - | 通常不查询 |
-| 系统字段 | 0 | - | 不查询 |
-
-#### 3.4 是否排序 (isOrder)
-
-| 规则 | isOrder |
-|------|---------|
-| 日期/时间字段 | 1 |
-| 金额/数量字段 | 1 |
-| 其他 | 0 |
-
-#### 3.5 字段类型 (fieldType)
-
-| SQL 列类型 | fieldType |
-|-----------|-----------|
-| varchar / char / text | String |
-| int / tinyint / smallint | Integer |
-| bigint | Long |
-| decimal / double / float | BigDecimal |
-| date | Date |
-| datetime / timestamp | Datetime |
-
-> **注意**：parseSql 返回的 fieldType 可能都是 String，AI 应根据字段名语义或用户描述修正。
-
-#### 3.6 字典配置 (dictCode)
-
-支持两种方式：
-
-**方式一：系统字典编码**
-```
-"dictCode": "sex"
-```
-
-**方式二：SQL 字典**
-```
-"dictCode": "SELECT id as value, name as text FROM sys_category"
-```
-
-常用系统字典：
-
-| 字典编码 | 说明 |
-|---------|------|
-| `sex` | 性别 (1=男, 2=女) |
-| `priority` | 优先级 |
-| `valid_status` | 有效状态 |
-| `urgent_level` | 紧急程度 |
-| `yn` | 是否 |
-
-#### 3.7 取值表达式 (replaceVal)
-
-用于将数据库值替换为显示文本（导出时使用）：
-```
-"replaceVal": "男_1,女_2"
-```
-格式：`显示文本_数据库值,显示文本_数据库值,...`
-
-#### 3.8 是否合计 (isTotal)
-
-| 规则 | isTotal |
-|------|---------|
-| 金额/费用/价格字段 | "1"（合计） |
-| 数量字段 | "1"（合计） |
-| 其他 | "0" 或 null |
-
-#### 3.9 分组表头 (groupTitle)
-
-多个字段可以共用一个分组表头，实现多级表头效果：
-```json
-{"fieldName": "q1_amount", "groupTitle": "第一季度"},
-{"fieldName": "q1_count", "groupTitle": "第一季度"},
-{"fieldName": "q2_amount", "groupTitle": "第二季度"},
-{"fieldName": "q2_count", "groupTitle": "第二季度"}
-```
-
-#### 3.10 字段跳转 (fieldHref)
-
-```
-"fieldHref": "/details?id=${id}"
-```
-支持 `${fieldName}` 变量替换。
-
-### Step 4: SQL 参数配置
-
-SQL 中的 `${paramName}` 会被解析为参数：
-
-```sql
-SELECT * FROM sales
-WHERE 1=1
-${#if($startDate != '')} AND sale_date >= '$startDate' ${#end}
-${#if($endDate != '')} AND sale_date <= '$endDate' ${#end}
-```
-
-参数配置：
-
-| 属性 | 说明 |
-|------|------|
-| paramName | 参数名（对应 SQL 中的 ${xxx}） |
-| paramTxt | 参数显示名称 |
-| paramValue | 默认值（可为空） |
-| orderNum | 排序序号 |
-
-### Step 5: 展示摘要并确认
-
-**必须展示以下内容，等待用户确认后再执行：**
+**在执行 API 前必须展示以下摘要，等待用户确认：**
 
 ```
 ## Online 报表配置摘要
@@ -264,21 +305,19 @@ ${#if($endDate != '')} AND sale_date <= '$endDate' ${#end}
 
 ### SQL 语句
 SELECT s.id, s.name, s.amount, s.sale_date, s.status
-FROM biz_sales s
-WHERE 1=1
+FROM biz_sales s WHERE 1=1
 
 ### 字段配置
 
-| 序号 | 字段名 | 显示名称 | 类型 | 显示 | 查询 | 排序 | 字典 | 合计 |
-|------|--------|---------|------|------|------|------|------|------|
-| 0 | id | ID | String | 否 | 否 | 否 | - | - |
-| 1 | name | 名称 | String | 是 | 是(模糊) | 否 | - | - |
-| 2 | amount | 金额 | BigDecimal | 是 | 否 | 是 | - | 是 |
-| 3 | sale_date | 销售日期 | Date | 是 | 是(范围) | 是 | - | - |
-| 4 | status | 状态 | String | 是 | 是(精确) | 否 | valid_status | - |
+| 序号 | 字段名 | 显示名称 | 类型 | 显示 | 查询 | 排序 | 合计 |
+|------|--------|---------|------|------|------|------|------|
+| 0 | id | ID | String | 否 | 否 | 否 | - |
+| 1 | name | 名称 | String | 是 | 单值 | 否 | - |
+| 2 | amount | 金额 | BigDecimal | 是 | 否 | 是 | 是 |
+| 3 | sale_date | 销售日期 | Date | 是 | 范围 | 是 | - |
+| 4 | status | 状态 | String | 是 | 单值 | 否 | - |
 
 ### 参数
-
 | 参数名 | 显示名称 | 默认值 |
 |--------|---------|--------|
 | (无) | | |
@@ -286,268 +325,192 @@ WHERE 1=1
 确认以上配置？(y/n)
 ```
 
-### Step 6: 调用 API 创建/编辑报表
+---
 
-用户确认后执行。
+## Step 6: 调用 API
 
-#### 6.1 构造请求 JSON
+用户确认后执行。使用 Python 调用 API（Windows 环境下 curl 中文会出错）：
 
-**新增报表 (add)：**
-
-```json
-{
-  "head": {
-    "code": "report_code",
-    "name": "报表名称",
-    "cgrSql": "SELECT ... FROM ...",
-    "dbSource": ""
-  },
-  "items": [
-    {
-      "id": "前端生成的长数字ID",
-      "cgrheadId": null,
-      "fieldName": "field_name",
-      "fieldTxt": "显示名称",
-      "fieldWidth": null,
-      "fieldType": "String",
-      "searchMode": null,
-      "isOrder": null,
-      "isSearch": null,
-      "dictCode": null,
-      "fieldHref": null,
-      "isShow": 1,
-      "orderNum": 0,
-      "replaceVal": null,
-      "isTotal": null,
-      "groupTitle": null,
-      "createBy": null,
-      "createTime": null,
-      "updateBy": null,
-      "updateTime": null
-    }
-  ],
-  "params": [
-    {
-      "paramName": "paramName",
-      "paramTxt": "参数名称",
-      "paramValue": "",
-      "orderNum": 1
-    }
-  ]
-}
-```
-
-**编辑报表 (editAll)：**
-
-```json
-{
-  "head": {
-    "id": "existing_head_id",
-    "code": "report_code",
-    "name": "报表名称",
-    "cgrSql": "SELECT ... FROM ...",
-    "dbSource": ""
-  },
-  "items": [...],
-  "params": [...],
-  "deleteItemIds": "item_id1,item_id2",
-  "deleteParamIds": "param_id1"
-}
-```
-
-**字段 ID 生成规则：**
-- add 时使用**雪花ID格式**（19位数字字符串），如 `"2032681654277947394"`
-- 可用 Python 的 `str(int(time.time() * 1000) * 1000 + random.randint(0, 999))` 近似生成
-
-#### 6.2 使用 Python 调用 API
-
-**重要限制：**
-1. **Windows 环境下 curl 发送中文/长 JSON 会出错**，必须使用 Python
-2. **禁止使用 `python3 -c "..."` 内联方式**
-3. **必须先用 Write 工具写入 `.py` 临时文件，再用 Bash 执行，最后删除临时文件**
-
-**完整 Python 脚本模板（已实测验证通过）：**
-
-以下脚本已在 `https://boot3.jeecg.com/jeecgboot` 环境成功创建报表（2026-03-14 验证）。
+**调用方式**：import `onlreport_api`，调用 `init_api` 初始化后直接使用封装函数，无需修改脚本文件。
 
 ```python
-import urllib.request
-import json
-import time
-import random
-import ssl
-import urllib.parse
+import sys
+sys.path.insert(0, r'<skill目录>/scripts')
+from onlreport_api import init_api, parse_sql, create_report, gen_id
+init_api('<api_base>', '<token>')
+```
 
-API_BASE = '{用户提供的后端地址}'
-TOKEN = '{用户提供的 X-Access-Token}'
+脚本中封装了以下操作：
 
-# 忽略SSL验证（开发环境）
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
+**查询类**
+- `list_reports()` — 查询报表列表
+- `list_all_reports_table()` — 查询所有报表（Markdown 表格，自动分页）
+- `list_fields_by_code_table(code)` — 按编码查字段（Markdown 表格）
+- `query_report(head_id)` — 查询报表头
+- `list_fields(head_id)` — 查询字段列表
+- `list_params(head_id)` — 查询参数列表
+- `get_report_id_by_code(code)` — 按编码获取报表 ID
+- `parse_sql(sql, db_key)` — 解析 SQL 字段
 
-def api_request(path, data=None, method=None):
-    """发送 API 请求"""
-    url = f'{API_BASE}{path}'
-    headers = {
-        'X-Access-Token': TOKEN,
-        'Content-Type': 'application/json; charset=UTF-8'
-    }
-    if data is not None:
-        json_data = json.dumps(data, ensure_ascii=False).encode('utf-8')
-        if method is None:
-            method = 'POST'
-        req = urllib.request.Request(url, data=json_data, headers=headers, method=method)
-    else:
-        if method is None:
-            method = 'GET'
-        req = urllib.request.Request(url, headers=headers, method=method)
-    resp = urllib.request.urlopen(req, context=ctx)
-    return json.loads(resp.read().decode('utf-8'))
+**创建 / 编辑**
+- `create_report(code, name, sql, db_source, items, params)` — 创建报表，返回含 `head_id` 的 dict
+- `edit_report(...)` — 编辑报表（PUT editAll）
 
-def gen_id():
-    """生成雪花ID格式的字符串（19位数字）"""
-    return str(int(time.time() * 1000) * 1000000 + random.randint(100000, 999999))
+**发布流程（高级语法糖，推荐优先使用）**
+- `validate_report(head_id)` — 验证 SQL 是否可执行，返回 True/False
+- `publish_report(head_id, name, role_code='admin', parent_id='')` — 验证 SQL + 创建菜单 + 授权角色，三步合一
+- `create_and_publish(code, name, sql, items, params=[], db_source='', role_code='admin', parent_id='')` — **全流程一键完成**：创建报表 + 验证 + 建菜单 + 授权
 
-# ====== Step 1: 调用 parseSql 解析字段 ======
-sql = "SELECT id, table_name, table_txt, table_type, create_time FROM onl_cgform_head WHERE 1=1"
-encoded_sql = urllib.parse.quote(sql, safe='')
-parse_result = api_request(f'/online/cgreport/head/parseSql?sql={encoded_sql}')
-print('解析结果:', json.dumps(parse_result, ensure_ascii=False, indent=2))
+**字段构建辅助**
+- `build_item(field_name, field_txt, ...)` — 按字段名语义自动推断类型/查询/显示，支持手动覆盖任意属性
 
-if not parse_result.get('success'):
-    print('SQL 解析失败:', parse_result.get('message'))
-    exit(1)
+**菜单 & 权限**
+- `create_menu(head_id, name, parent_id='')` — 创建报表菜单
+- `get_role_id_by_code(role_code)` — 按角色编码获取角色 ID
+- `grant_menu_to_role(role_id, menu_id)` — 追加授权菜单给角色
+- `add_data_rule(menu_id, role_id, rule_name, rule_column, rule_conditions, rule_value)` — 完整四步数据规则配置
 
-# ====== Step 2: 直接构造字段配置（不依赖 parseSql 返回的默认值） ======
-# 注意：parseSql 返回的 fieldType 全部是 String，AI 需根据语义修正
-# 注意：parseSql 返回的 fieldTxt 等于 fieldName，AI 需翻译为中文
+---
+
+### build_item 用法示例（推荐，替代手写 dict）
+
+```python
+from onlreport_api import init_api, build_item, create_and_publish
+init_api('<api_base>', '<token>')
+
 items = [
-    {"id": gen_id(), "cgrheadId": None, "fieldName": "id", "fieldTxt": "ID",
-     "fieldWidth": None, "fieldType": "String", "searchMode": None, "isOrder": None,
-     "isSearch": None, "dictCode": None, "fieldHref": None, "isShow": 0,
-     "orderNum": 0, "replaceVal": None, "isTotal": None, "groupTitle": None,
-     "createBy": None, "createTime": None, "updateBy": None, "updateTime": None},
-    {"id": gen_id(), "cgrheadId": None, "fieldName": "table_name", "fieldTxt": "表名",
-     "fieldWidth": None, "fieldType": "String", "searchMode": "like", "isOrder": None,
-     "isSearch": 1, "dictCode": None, "fieldHref": None, "isShow": 1,
-     "orderNum": 1, "replaceVal": None, "isTotal": None, "groupTitle": None,
-     "createBy": None, "createTime": None, "updateBy": None, "updateTime": None},
-    # ... 继续添加其他字段 ...
+    build_item('id',          'ID',       order_num=0),          # 自动隐藏
+    build_item('username',    '用户名',   order_num=1),          # 自动单值查询
+    build_item('status',      '状态',     order_num=2),          # 自动 dictCode=valid_status
+    build_item('amount',      '金额',     order_num=3),          # 自动 BigDecimal + 合计
+    build_item('create_time', '创建时间', order_num=4),          # 自动 Datetime + 可排序
+    # 手动覆盖
+    build_item('email', '邮箱', order_num=5, field_href='mailto:${email}'),
+    build_item('sex',   '性别', order_num=6, dict_code='sex'),
 ]
 
-# ====== Step 3: 构造请求 ======
-report_data = {
-    "head": {
-        "code": "onl_cgform_list",
-        "name": "Online表单清单",
-        "cgrSql": sql,
-        "dbSource": ""
-    },
-    "items": items,
-    "params": []
-}
-
-# ====== Step 4: 调用 add API 创建报表 ======
-result = api_request('/online/cgreport/head/add', report_data)
-print('创建结果:', json.dumps(result, ensure_ascii=False, indent=2))
-
-if result.get('success'):
-    print('\n报表创建成功！')
-    # Step 5: 查询报表 ID 并生成菜单 SQL
-    list_result = api_request(f'/online/cgreport/head/list?code=onl_cgform_list')
-    if list_result.get('success') and list_result['result']['records']:
-        head_id = list_result['result']['records'][0]['id']
-        print(f'报表 ID: {head_id}')
-        print(f'\n菜单 SQL:')
-        print(f"INSERT INTO sys_permission (id, parent_id, name, url, component, component_name, is_route, is_leaf, keep_alive, hidden, hide_tab, description, del_flag, rule_flag, status, internal_or_external, perms_type, sort_no, menu_type, route_redirect) VALUES ('{head_id}', NULL, 'Online表单清单', '/online/cgreport/{head_id}', 'modules/online/cgreport/auto/OnlCgreportAutoMain', NULL, 1, 1, 0, 0, 0, NULL, 0, 0, '1', 0, '0', 1.0, 1, NULL);")
-else:
-    print('\n创建失败:', result.get('message'))
+# 一键：建报表 + 验证 SQL + 建菜单 + 授权 admin
+head_id = create_and_publish('my_report', '我的报表', 'SELECT ... FROM ...', items)
 ```
 
-### 实测记录（2026-03-14）
+### build_item 自动推断规则
 
-**测试场景**：创建 Online 表单清单报表，查询 `onl_cgform_head` 表
+| 字段名关键词 | 自动推断结果 |
+|-------------|------------|
+| `id` | 隐藏（isShow=0） |
+| `create_by` / `update_by` / `sys_org_code` / `org_code` | 隐藏 |
+| `avatar` / `photo` / `image` / `pic` / `img` | Image 类型 |
+| `amount` / `money` / `price` / `fee` / `cost` | BigDecimal，isTotal='1' |
+| `count` / `qty` / `num` / `quantity` | Integer，isTotal='1' |
+| `birthday` / `*_date` | Date，范围查询(group) |
+| `*_time` / `*_datetime` | Datetime，可排序 |
+| `create_time` / `update_time` | Datetime，可排序，不查询 |
+| `sex` | dictCode=sex |
+| `status` | dictCode=valid_status |
+| `name` / `title` / `code` / `no` | 单值查询(single) |
 
-**SQL**：
-```sql
-SELECT id, table_name, table_txt, table_type, table_version, is_tree, is_page, theme_template, create_time, create_by, update_time
-FROM onl_cgform_head WHERE 1=1
-```
+> 所有推断值均可通过参数覆盖，例：`build_item('status', '状态', dict_code='my_dict')`
 
-**验证结果**：
-1. `parseSql` API 成功解析 11 个字段，所有 fieldType 均返回 String（需 AI 修正）
-2. `add` API 成功创建报表，返回 `{"success": true, "message": "添加成功！"}`
-3. `head/list` API 成功查询到报表 ID: `2032684085556592641`
-4. 菜单 SQL 生成正确
-
-**关键发现**：
-- parseSql 返回的 `orderNum` 从 1 开始，但 add 时 items 的 `orderNum` 从 0 开始也能正常工作
-- 不需要的字段值（isSearch/isOrder/dictCode 等）传 `null` 即可，不需要传空字符串
-- `replaceVal` 格式 `"单表_1,主表_2,附表_3"` 可以替代 dictCode 实现值翻译（导出时有效）
-- gen_id() 生成的 19 位数字字符串与前端生成的雪花 ID 格式一致，API 接受
-
-### Step 7: 生成菜单 SQL（可选）
-
-报表创建成功后，需要查询报表 ID 来生成菜单 SQL：
+---
 
 ```python
-# 查询刚创建的报表
-import urllib.parse
-list_result = api_request(f'/online/cgreport/head/list?code={urllib.parse.quote(report_code)}')
-if list_result.get('success') and list_result['result']['records']:
-    head_id = list_result['result']['records'][0]['id']
-    report_name = list_result['result']['records'][0]['name']
-    print(f'\n报表 ID: {head_id}')
-    print(f'\n### 菜单 SQL（可选执行）')
-    print(f"""
-INSERT INTO sys_permission (
-  id, parent_id, name, url, component, component_name,
-  is_route, is_leaf, keep_alive, hidden, hide_tab, description,
-  del_flag, rule_flag, status, internal_or_external,
-  perms_type, sort_no, menu_type, route_redirect
-) VALUES (
-  '{head_id}', NULL, '{report_name}',
-  '/online/cgreport/{head_id}',
-  'modules/online/cgreport/auto/OnlCgreportAutoMain',
-  NULL,
-  1, 1, 0, 0, 0, NULL,
-  0, 0, '1', 0,
-  '0', 1.0, 1, NULL
-);
-""")
+# 手动构造 items 原始写法（不推荐，优先使用 build_item）
+items = [
+    {
+        "id": gen_id(),         # 雪花 ID，19位数字字符串
+        "headId": None,
+        "fieldName": "name",
+        "fieldTxt": "名称",
+        "fieldWidth": None,
+        "fieldType": "String",
+        "searchMode": "single",  # 单值查询；范围查询用 "group"
+        "isOrder": None,         # 不排序用 null，排序用 1
+        "isSearch": 1,
+        "dictCode": None,
+        "fieldHref": None,
+        "isShow": 1,
+        "orderNum": 1,
+        "replaceVal": None,
+        "isTotal": None,         # 不合计用 null，合计用 "1"（字符串）
+        "groupTitle": None,
+        "createBy": None,
+        "createTime": None,
+        "updateBy": None,
+        "updateTime": None
+    }
+]
 ```
 
-**菜单 SQL 字段说明：**
+**关键约束**：
+1. **Windows 必须用 Python**，不要用 curl；Python 命令是 `python`（不是 `python3`）
+2. 写临时 `.py` 脚本时用 `Write` 工具，执行后删除临时文件
+3. 字段 ID 用 `gen_id()` 生成（雪花格式 19 位数字字符串）
+4. parseSql 返回的 fieldType 全是 String，需根据上表语义修正（或直接用 `build_item` 自动推断）
+5. `isOrder`/`isSearch` 的"否"值为 `null`，不要用 `0`
+6. `isTotal` 的"是"值为字符串 `"1"`，不是数字 `1`
+7. **合计行仅在表内有数据时才显示**；表内无数据时合计行不出现，属正常现象，录入数据后即可看到
+8. 合计只统计数字值；字段含空值/null/非数字内容时会显示"包含非数字内容"提示
 
-| 字段 | 值 | 说明 |
-|------|-----|------|
-| id | 报表 headId | 与报表配置关联 |
-| parent_id | NULL | 一级菜单，也可设为某个父菜单 ID |
-| name | 报表名称 | 菜单显示名 |
-| url | `/online/cgreport/{headId}` | 路由路径 |
-| component | `modules/online/cgreport/auto/OnlCgreportAutoMain` | 前端组件 |
-| is_route | 1 | 是菜单路由 |
-| is_leaf | 1 | 叶子节点 |
-| menu_type | 1 | 菜单类型（1=菜单） |
+---
 
-### Step 8: 输出结果
+## Step 7: 验证报表 SQL 可用性
 
-**本地环境自动执行菜单 SQL 规则：**
-如果 API_BASE 以 `http://127.0.0.1` 或 `http://localhost` 开头（不区分大小写），在生成菜单 SQL 后，自动通过 Bash 工具执行 MySQL 命令插入菜单：
+报表创建成功后，**必须立即调用以下接口验证 SQL 执行正常**，否则报表预览会出现 500 错误：
+
+```
+GET /online/cgreport/api/getColumnsAndData/{headId}
+```
+
+```python
+url = f'{base}/online/cgreport/api/getColumnsAndData/{head_id}'
+req = urllib.request.Request(url, headers={'X-Access-Token': token})
+with urllib.request.urlopen(req, timeout=10) as resp:
+    data = json.loads(resp.read())
+    if data.get('success'):
+        result = data.get('result', {})
+        columns = result.get('columns', [])
+        rows = result.get('rows', [])
+        print(f'验证通过：{len(columns)} 个字段，{len(rows)} 行数据')
+    else:
+        print('验证失败：', data.get('message'))
+```
+
+**常见失败原因及修复：**
+
+| 错误信息 | 原因 | 修复方式 |
+|---------|------|---------|
+| `Unknown column 'xxx' in 'field list'` | SQL 引用了表中不存在的字段（如多租户字段 `tenant_id` 在非多租户版本中不存在） | 从 SQL 和字段配置中删除该字段，用 `editAll` 更新 |
+| `Table 'xxx' doesn't exist` | 表名错误或数据源配置有误 | 检查 SQL 中的表名和 dbSource |
+| `syntax error` | SQL 语法错误 | 修正 SQL 语句 |
+
+验证失败时，用 `editAll`（PUT）修复 SQL 和字段配置后，再次调用验证，直到返回 `success: true`。
+
+---
+
+## Step 8: 生成菜单 SQL
+
+报表创建成功后，脚本会自动调用 `print_menu_sql(head_id, name)` 输出菜单 SQL。
+
+**本地环境自动执行规则**：如果 API_BASE 以 `http://127.0.0.1` 或 `http://localhost` 开头（不区分大小写），自动执行 MySQL 插入菜单：
 
 ```bash
-# 先检查是否已存在，避免重复插入
-mysql -h127.0.0.1 -P3306 -uroot -proot jeecgboot3 -e "SELECT id FROM sys_permission WHERE id='{head_id}'"
-# 不存在则执行插入
 mysql -h127.0.0.1 -P3306 -uroot -proot jeecgboot3 -e "INSERT INTO sys_permission (...) VALUES (...);"
 ```
 
-- 如果 MySQL 执行失败，回退为输出 SQL 让用户手动执行，不中断整体流程
-- 数据库连接参数默认 `mysql -h127.0.0.1 -P3306 -uroot -proot jeecgboot3`，与 jeecg-codegen 保持一致
+- 如果 MySQL 失败，回退为输出 SQL 让用户手动执行
+- 数据库参数默认 `mysql -h127.0.0.1 -P3306 -uroot -proot jeecgboot3`
+
+**菜单配置说明：**
+- 前端组件固定为：`modules/online/cgreport/auto/OnlCgreportAutoMain`
+- 报表访问路径：`/online/cgreport/{headId}`
+- 也可在「系统管理 → 菜单管理」手工新增菜单，粘贴上述配置地址，「是否是路由菜单」设为否
+
+---
+
+## 输出结果模板
 
 ```
-## Online 报表创建成功
+## Online 报表操作成功
 
 - 报表编码：{code}
 - 报表名称：{name}
@@ -560,19 +523,20 @@ mysql -h127.0.0.1 -P3306 -uroot -proot jeecgboot3 -e "INSERT INTO sys_permission
 INSERT INTO sys_permission (...) VALUES (...);
 
 ### 后续操作
-1. 打开 JeecgBoot 后台 → Online报表
-2. 找到该报表，点击「功能测试」预览效果
-3. 如菜单未自动执行，手动执行上方 SQL 或在后台手动添加
-4. 可在「编辑」中调整字段显示/查询/排序等配置
+1. ✅ 调用 `/online/cgreport/api/getColumnsAndData/{headId}` 验证 SQL 执行正常
+2. 打开 JeecgBoot 后台 → Online报表
+3. 找到该报表，点击「功能测试」预览效果
+4. 如菜单未自动执行，手动执行上方 SQL 或在后台手动添加
+5. 可在「编辑」中调整字段显示/查询/排序等配置
 ```
 
 ---
 
-## 高级功能
+## SQL 高级特性
 
-### SQL 参数化查询
+### 参数化查询（Velocity 模板）
 
-支持在 SQL 中使用 Velocity 模板语法的参数：
+在 SQL 中使用 Velocity 模板语法定义参数（parseSql 会自动解析 `${paramName}` 为参数列表）：
 
 ```sql
 SELECT * FROM biz_sales
@@ -582,39 +546,246 @@ ${#if($endDate != '')} AND sale_date <= '$endDate' ${#end}
 ${#if($status != '')} AND status = '$status' ${#end}
 ```
 
-对应的 params 配置：
+对应的 params 配置（**新增**时可不带 id/headId，**editAll 编辑**时必须带）：
+
 ```json
 [
   {"paramName": "startDate", "paramTxt": "开始日期", "paramValue": "", "orderNum": 1},
-  {"paramName": "endDate", "paramTxt": "结束日期", "paramValue": "", "orderNum": 2},
-  {"paramName": "status", "paramTxt": "状态", "paramValue": "", "orderNum": 3}
+  {"paramName": "endDate",   "paramTxt": "结束日期", "paramValue": "", "orderNum": 2},
+  {"paramName": "status",    "paramTxt": "状态",     "paramValue": "", "orderNum": 3}
 ]
 ```
 
-### 动态数据源
+editAll 编辑时的完整格式（需加 `id` 和 `headId`）：
+```python
+{"id": gen_id(), "headId": head_id, "paramName": "status", "paramTxt": "状态", "paramValue": "", "orderNum": 1}
+```
 
-如果用户需要查询非默认数据源的数据：
+**URL 带参访问**：获取报表配置地址后，将 `${sex}` 替换为实际值访问：
+```
+/online/cgreport/{headId}?sex=1
+```
 
+### 系统变量
+
+在 SQL 中用 `#{变量名}` 引用当前登录用户信息，实现数据隔离：
+
+```sql
+SELECT * FROM sys_user WHERE username = '#{sys_user_code}'
+```
+
+| 变量 | 说明 |
+|------|------|
+| `#{sys_user_code}` | 当前登录用户账号 |
+| `#{sys_user_name}` | 当前登录用户真实姓名 |
+| `#{sys_date}` | 当前系统日期 |
+| `#{sys_time}` | 当前系统时间 |
+| `#{sys_org_code}` | 当前登录用户部门编号 |
+| `#{sys_base_path}` | 当前 Java 服务 basePath |
+
+### 排序配置
+
+- **MySQL 及非 SQL Server 数据库**：直接在 SQL 中添加 `ORDER BY` 即可
+- **SQL Server 数据库**：不允许 SQL 内含 `ORDER BY`，必须通过 URL 参数传递：
+
+```
+/online/cgreport/{headId}?column=age,name&order=desc
+```
+
+| URL 参数 | 说明 |
+|----------|------|
+| `column` | 排序字段，多个用逗号分隔 |
+| `order` | 排序方式：`desc`（倒序）/ `asc`（正序） |
+
+---
+
+## 菜单创建与角色授权
+
+报表创建后，通过 API 完成菜单注册和角色授权的完整流程：
+
+### 1. 创建菜单
+```
+POST /sys/permission/add
+```
 ```json
 {
-  "head": {
-    "code": "ext_report",
-    "name": "外部数据报表",
-    "cgrSql": "SELECT ...",
-    "dbSource": "second_db"
-  }
+  "id": "{headId}",
+  "name": "报表名称",
+  "parentId": "",
+  "url": "/online/cgreport/{headId}",
+  "component": "modules/online/cgreport/auto/OnlCgreportAutoMain",
+  "isRoute": 1,
+  "isLeaf": "1",
+  "keepAlive": 0,
+  "hidden": 0,
+  "hideTab": 0,
+  "status": "1",
+  "menuType": 1,
+  "sortNo": 1.0,
+  "alwaysShow": 0,
+  "internalOrExternal": false,
+  "permsType": "0",
+  "ruleFlag": 0
 }
 ```
 
-`dbSource` 对应 JeecgBoot 后台「数据源管理」中配置的数据源编码。
-
-### 字段宽度 (fieldWidth)
-
-控制表格列宽（像素值）：
-```json
-{"fieldName": "name", "fieldWidth": 200}
-{"fieldName": "description", "fieldWidth": 300}
+### 2. 查找角色 ID
 ```
+GET /sys/role/list?pageNo=1&pageSize=50
+```
+返回 `records[]`，找到目标角色的 `id`（管理员 `roleCode=admin`）。
+
+### 3. 查询角色已有权限
+```
+GET /sys/permission/queryRolePermission?roleId={roleId}
+```
+返回权限 ID 数组（可能高达千条）。
+
+### 4. 追加权限并保存
+```
+POST /sys/permission/saveRolePermission
+Content-Type: application/json
+```
+```json
+{
+  "roleId": "{roleId}",
+  "permissionIds": "id1,id2,...,{新菜单headId}",
+  "lastPermissionIds": "id1,id2,..."
+}
+```
+
+> **注意**：必须用 **JSON body**（`application/json`）发送，不支持 form 表单或 URL 参数。权限 ID 列表可能很长（>1000），不能放 URL。
+
+---
+
+## 数据权限配置
+
+Online 报表支持通过「数据规则」过滤报表数据，仅展示符合条件的数据。
+
+**配置路径**：菜单管理 → 找到报表菜单 → 更多 → 数据规则
+
+**注意事项**：
+- 规则字段不限于报表查询字段，表中任意字段均可使用
+- 字符串参数必须用单引号引起来（例如：`'admin'`），否则视为数字
+- 支持系统上下文变量，需加单引号（例如：`'#{sys_user_code}'`）
+- **不支持带 `?` 参数的菜单配置数据规则**；如有需要，单独创建一个不带参数的隐藏菜单用于数据规则配置
+
+### 通过 API 配置数据规则
+
+**前提：角色必须先有该菜单的权限**，否则授权数据规则时会报"请先保存角色菜单权限!"。先调用 `grant_menu_to_role(role_id, menu_id)` 或手动授权菜单。
+
+**Step 1：创建规则**（默认未启用）
+```
+POST /sys/permission/addPermissionRule
+{"permissionId":"{menuId}","ruleName":"规则名称","ruleColumn":"sex","ruleConditions":"!=","ruleValue":"'1'"}
+```
+
+> ⚠️ **`addPermissionRule` 返回的 `result` 为 `null`，不含规则 ID！**
+> 创建后必须调用以下接口查询刚创建的规则 ID：
+> ```
+> GET /sys/permission/queryPermissionRule?permissionId={menuId}
+> ```
+> 按 `ruleName` 匹配且 `status == null` 找到目标规则，取其 `id`。
+> **`add_data_rule()` 函数已内置此逻辑，直接调用函数即可。**
+
+**Step 2：启用规则**（`status:"1"` 才生效，缺少此步规则不生效）
+```
+POST /sys/permission/editPermissionRule
+{"id":"{ruleId}","permissionId":"{menuId}","ruleName":"规则名称","ruleColumn":"sex","ruleConditions":"!=","ruleValue":"'1'","status":"1"}
+```
+
+**Step 3：将规则授权给指定角色**（此步骤才真正让规则对角色生效）
+```
+POST /sys/role/datarule
+{"permissionId":"{menuId}","roleId":"{roleId}","dataRuleIds":"{ruleId1},{ruleId2}"}
+```
+多个规则 ID 用逗号分隔。**缺少此步骤，规则虽已创建并启用，但不会对任何角色生效。**
+
+**Step 4：验证规则已对角色生效**
+```
+GET /sys/role/datarule/{menuId}/{roleId}
+```
+返回结构：
+- `datarule[]`：该菜单下配置的所有数据规则列表
+- `drChecked`：已授权给该角色的规则 ID，逗号分隔
+
+`drChecked` 中包含规则 ID 说明授权成功。
+
+### 完整流程小结
+
+```
+0. grant_menu_to_role(role_id, menu_id)            → 前提：确保角色有菜单权限
+1. POST /sys/permission/addPermissionRule          → 创建规则（默认未启用，result 为 null）
+   GET  /sys/permission/queryPermissionRule         → 查询列表获取真实规则 ID
+2. POST /sys/permission/editPermissionRule         → 启用规则（status:"1"）
+3. POST /sys/role/datarule                         → 授权给角色（才真正生效）
+4. GET  /sys/role/datarule/{menuId}/{roleId}       → 验证授权结果
+```
+
+### 修改已有数据规则
+
+使用 `editPermissionRule` 可修改规则名称、字段、条件、值（保持 `status:"1"`）：
+```
+POST /sys/permission/editPermissionRule
+{"id":"{ruleId}","permissionId":"{menuId}","ruleName":"新名称","ruleColumn":"birthday","ruleConditions":"=","ruleValue":"'2024-04-11'","status":"1"}
+```
+
+### 删除数据规则
+
+```
+DELETE /sys/permission/deletePermissionRule?id={ruleId}
+```
+
+### ruleConditions 条件值
+
+条件选项来自系统字典 `rule_conditions`，可通过 `GET /sys/dict/getDictItems/rule_conditions` 查询完整列表。
+
+常用条件示例：
+
+| 条件 | ruleValue 示例 | 说明 |
+|------|---------------|------|
+| `=` | `'2024-04-11'` | 等于（字符串必须加单引号） |
+| `!=` | `'1'` | 不等于 |
+| `>=` | `'2024-01-01'` | 大于等于 |
+| `<=` | `'2024-12-31'` | 小于等于 |
+| `like` | `'%admin%'` | 模糊匹配 |
+| `in` | `'1','2','3'` | 包含多值 |
+| `USE_SQL_RULES` | `username != 'admin'` | **自定义 SQL 表达式**，`ruleColumn` 无需填写，`ruleValue` 直接写 WHERE 子句（不含 WHERE 关键字） |
+
+### ruleValue 系统变量
+
+`ruleValue` 支持以下系统上下文变量（自动替换为当前登录用户信息）：
+
+| 变量 | 说明 |
+|------|------|
+| `#{sys_user_code}` | 登录用户账号 |
+| `#{sys_user_name}` | 登录用户名称 |
+| `#{sys_date}` | 当前日期 |
+| `#{sys_time}` | 当前时间 |
+| `#{sys_org_code}` | 登录用户部门编码 |
+| `#{sys_multi_org_code}` | 用户拥有的所有部门编码 |
+| `#{tenant_id}` | 登录用户所属租户 |
+
+> 字符串类型的系统变量需加单引号：`'#{sys_user_code}'`
+
+---
+
+## 数据导出
+
+Online 报表支持导出功能，默认分 sheet 导出，每个 sheet 最多 1 万条数据。
+
+---
+
+## 错误处理
+
+| 错误 | 原因 | 解决方案 |
+|------|------|---------|
+| 401 / 认证失败 | Token 过期 | 重新从浏览器 F12 获取 X-Access-Token |
+| 报表编码已存在 | code 重复 | 换一个 code，或用 editAll 编辑 |
+| parseSql 失败 | SQL 含复杂函数或语法问题 | 去掉问题条件后解析，再手工添加参数 |
+| SQL 注入风险 | 包含危险语句 | 不要在 SQL 中使用 DROP/DELETE/UPDATE |
+| 禁止 select * | 系统开启了 disableSelectAll | 改为指定具体字段 |
+| 中文乱码 | 用了 curl | 必须用 Python urllib |
 
 ---
 
@@ -622,21 +793,24 @@ ${#if($status != '')} AND status = '$status' ${#end}
 
 | Skill | 产出物 | 适用场景 |
 |-------|--------|---------|
-| `jeecg-cgreport` | Online 报表配置（SQL 驱动，只读数据展示） | 数据查询报表、统计分析、数据导出 |
-| `jeecg-online` | Online 表单配置（元数据驱动，CRUD） | 数据录入管理表单 |
-| `jeecg-codegen` | Java + Vue3 代码 + SQL | 需要自定义业务逻辑的模块 |
+| `jeecg-onlreport` | Online 报表（SQL 驱动，只读数据展示） | 数据查询、统计分析、数据导出 |
+| `jeecg-onlform` | Online 表单（元数据驱动，CRUD） | 数据录入管理 |
+| `jeecg-codegen` | Java + Vue3 代码 | 需要自定义业务逻辑的模块 |
 | `jeecg-desform` | 设计器表单 JSON | 数据采集、审批表单 |
 
 ---
 
-## 错误处理
+## API 快速参考
 
-| 错误 | 解决方案 |
-|------|---------|
-| Token 过期（401/认证失败） | 提示用户重新获取 X-Access-Token |
-| `报表编码已存在` | 换一个 code 或使用 editAll 编辑 |
-| parseSql 失败 | 检查 SQL 语法是否正确，表是否存在 |
-| `SQL注入风险` | 不要在 SQL 中使用 DROP/DELETE/UPDATE 等危险语句 |
-| `禁止 select *` | 如果系统开启了 disableSelectAll，需指定具体字段 |
-| 中文乱码 | 确认使用 Python urllib（不要用 curl） |
+详细 API schema 参见 `references/api_schema.md`。
 
+| 操作 | API |
+|------|-----|
+| 列出报表 | `GET /online/cgreport/head/list` |
+| 查报表详情 | `GET /online/cgreport/head/queryById?id={id}` |
+| 查字段列表 | `GET /online/cgreport/item/listByHeadId?headId={id}` |
+| 按编码查字段 | `GET /online/cgreport/item/listByHeadCode?headCode={code}` |
+| 查参数列表 | `GET /online/cgreport/param/listByHeadId?headId={headId}` |
+| 解析 SQL | `GET /online/cgreport/head/parseSql?sql={sql}&dbKey={key}` |
+| 创建报表 | `POST /online/cgreport/head/add` |
+| 编辑报表 | `PUT /online/cgreport/head/editAll` |

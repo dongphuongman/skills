@@ -105,7 +105,7 @@ def add_chart(base_url, token, report_id, chart_type="bar.simple",
 
 def main():
     p = argparse.ArgumentParser(description="积木报表图表工具")
-    p.add_argument("--base-url", default=os.environ.get("JMREPORT_URL", "http://192.168.1.6:8085/jmreport"))
+    p.add_argument("--base-url", default=os.environ.get("JMREPORT_URL", "<api_base>"))
     p.add_argument("--token", default=os.environ.get("JMREPORT_TOKEN", ""))
     sub = p.add_subparsers(dest="cmd")
 

@@ -25,7 +25,7 @@
 
 执行：
 ```bash
-python "<skill目录>/scripts/desform_creator.py" --api-base https://boot3.jeecg.com/jeecgboot --token <TOKEN> --config config.json
+python "<skill目录>/scripts/desform_creator.py" --api-base <api_base> --token <TOKEN> --config config.json
 ```
 
 ### 方式 2：desform_utils.py 工厂函数
@@ -35,7 +35,7 @@ import sys
 sys.path.insert(0, r'<skill目录>/scripts')
 from desform_utils import *
 
-init_api('https://boot3.jeecg.com/jeecgboot', 'your-token')
+init_api('<api_base>', '<token>')
 
 create_form('员工信息登记', 'employee_info', [
     INPUT('姓名', required=True),
@@ -263,12 +263,12 @@ create_form('复杂表单', 'complex_form', [grid_w, card_w, tabs_w])
 
 ---
 
-## 模式 I：移动端视图
+## 模式 I：移动端表单视图
 
-**场景：** 为已有表单创建移动端视图
+**场景：** 为已有表单创建移动端表单视图
 
 ```python
-# 创建移动端视图（自动复制主视图设计）
+# 创建移动端表单视图（自动复制主表单视图设计）
 create_view('customer_info', '客户信息(移动端)', 'customer_info_mobile', is_mobile=True)
 
 # 或者使用 mobile_options 为移动端优化控件

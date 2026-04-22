@@ -4,8 +4,8 @@ JeecgBoot OA 应用一键创建脚本
 一次性完成：表单创建 → 流程创建 → 流程发布 → 表单关联 → 角色授权
 
 用法:
-  python desform_oa.py --api-base <URL> --token <TOKEN> --config <config.json>
-  python desform_oa.py --api-base <URL> --token <TOKEN> --config <config.json> --force
+  python bpmn_oa.py --api-base <URL> --token <TOKEN> --config <config.json>
+  python bpmn_oa.py --api-base <URL> --token <TOKEN> --config <config.json> --force
 
 参数:
   --api-base       JeecgBoot 后端地址（如 http://localhost:8080/jeecgboot）

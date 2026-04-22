@@ -5,7 +5,7 @@ JeecgBoot 大屏/仪表盘设计器 Python 工具库
 
 使用方式：
     from bi_utils import *
-    init_api('https://api3.boot.jeecg.com', 'your-token')
+    init_api('<api_base>', '<token>')
     page_id = create_page('销售大屏', style='bigScreen')
     add_number(page_id, '销售额', x=50, y=50, w=400, h=200, value=128560)
     add_chart(page_id, 'JBar', '月度销售', x=50, y=280, w=860, h=380,
@@ -25,6 +25,7 @@ import uuid
 # ============================================================
 API_BASE = ''
 TOKEN = ''
+EXTRA_HEADERS = {}   # QQY模式额外头：{'X-Low-App-ID': appId, 'X-Tenant-Id': tenantId}
 
 # 内存中缓存页面组件数据，save_page 时一次性提交
 _page_components = {}  # {page_id: [component_dict, ...]}
@@ -36,8 +37,8 @@ _page_info = {}        # {page_id: {name, style, theme, ...}}
 # ============================================================
 # 大屏（bigScreen）- 深色背景，亮色文字
 _BIGSCREEN = {
-    'bg': 'rgba(0,0,0,0)',
-    'border_color': '',
+    'bg': '#FFFFFF00',
+    'border_color': '#FFFFFF00',
     'title_color': '#ffffff',
     'axis_color': '#ffffff',
     'grid_color': 'rgba(255,255,255,0.1)',
@@ -130,11 +131,13 @@ def _make_card(mode, title):
     return card
 
 
-def init_api(api_base, token):
-    """初始化 API 地址和 Token"""
-    global API_BASE, TOKEN
+def init_api(api_base, token, extra_headers=None):
+    """初始化 API 地址和 Token（QQY模式可传 extra_headers={'X-Low-App-ID':appId,'X-Tenant-Id':tenantId}）"""
+    global API_BASE, TOKEN, EXTRA_HEADERS
     API_BASE = api_base.rstrip('/')
     TOKEN = token
+    if extra_headers:
+        EXTRA_HEADERS = extra_headers
     print(f'[bi_utils] API: {API_BASE}')
 
 
@@ -151,6 +154,8 @@ def _request(method, path, data=None, params=None):
         'Content-Type': 'application/json;charset=UTF-8',
         'X-Access-Token': TOKEN,
     }
+    if EXTRA_HEADERS:
+        headers.update(EXTRA_HEADERS)
 
     body = None
     if data is not None:
@@ -247,11 +252,21 @@ def query_page(page_id):
         raise Exception(f"查询页面失败: {result.get('message')}")
     page = result.get('result', {})
 
-    # 更新缓存
+    # 更新缓存（保留所有关键字段，避免 save_page 时丢失）
     if page_id not in _page_info:
         _page_info[page_id] = {}
-    _page_info[page_id]['updateCount'] = page.get('updateCount', 1)
-    _page_info[page_id]['name'] = page.get('name', '')
+    info = _page_info[page_id]
+    info['updateCount'] = page.get('updateCount', 1)
+    info['name'] = page.get('name', '')
+    # 仅当服务器返回了非空值时才更新，避免覆盖 create_page 设置的值
+    for field in ('backgroundImage', 'style', 'theme', 'designType'):
+        server_val = page.get(field)
+        if server_val is not None:
+            info[field] = server_val
+        elif field not in info:
+            info[field] = ''
+    # 缓存 desJson（页面宽高等配置），save_page 时回传避免丢失
+    info['desJson'] = page.get('desJson', '') or ''
 
     # 解析 template
     template = page.get('template')
@@ -283,21 +298,38 @@ def save_page(page_id):
     1. 删除所有旧的 OnlDragPageComp 记录
     2. 从 template 中提取 config 创建新的 comp 记录
     3. 更新 template（移除 config，注入 pageCompId）
-    """
-    components = _page_components.get(page_id, [])
-    info = _page_info.get(page_id, {})
 
-    # 始终查询最新页面信息，确保 updateCount 正确
-    try:
-        page = query_page(page_id)
-        info = _page_info.get(page_id, {})
-        # 如果本地没有新增组件，使用已有的
-        if not components:
-            existing_template = page.get('template', [])
-            if isinstance(existing_template, list):
-                components = existing_template
-    except Exception as e:
-        print(f'[bi_utils] 查询页面警告: {e}，使用缓存信息')
+    优化说明（2026-04-08）：
+    - 不再在 save_page 内部调用 query_page，消除额外 API 往返和 updateCount 竞争
+    - 用 `page_id in _page_components` 区分"主动设置（含空列表）"vs"未设置"，
+      修复删除全部组件后 save_page 用旧模板覆盖的 bug
+    - 传 desJson 避免页面宽高配置丢失
+    """
+    info = _page_info.get(page_id)
+
+    # 若没有缓存的页面元数据（updateCount/name/style 等），先查询一次
+    if info is None:
+        try:
+            query_page(page_id)
+            info = _page_info.get(page_id, {})
+        except Exception as e:
+            print(f'[bi_utils] 查询页面警告: {e}，使用空元数据')
+            info = {}
+
+    # 取组件列表：
+    #   - page_id 在 _page_components 中（含 [] 空列表）→ 使用缓存值（含有意清空的情形）
+    #   - page_id 不在 _page_components 中 → 从服务端拉取，保留现有组件
+    if page_id in _page_components:
+        components = _page_components[page_id]
+    else:
+        try:
+            page = query_page(page_id)
+            info = _page_info.get(page_id, {})
+            existing = page.get('template', [])
+            components = existing if isinstance(existing, list) else []
+        except Exception as e:
+            print(f'[bi_utils] 查询页面警告: {e}，使用空组件列表')
+            components = []
 
     # 构建 template JSON
     template = json.dumps(components, ensure_ascii=False)
@@ -311,6 +343,7 @@ def save_page(page_id):
         'theme': info.get('theme', 'dark'),
         'backgroundImage': info.get('backgroundImage', ''),
         'designType': info.get('designType', 100),
+        'desJson': info.get('desJson', '') or '',
     }
 
     result = _request('POST', '/drag/page/edit', data=payload)
@@ -318,7 +351,7 @@ def save_page(page_id):
     if not result.get('success'):
         raise Exception(f"保存页面失败: {result.get('message')}")
 
-    # 更新 updateCount
+    # 更新 updateCount（下次保存时使用最新值，无需重新 query）
     new_count = result.get('result', {})
     if isinstance(new_count, dict):
         info['updateCount'] = new_count.get('updateCount', info.get('updateCount', 1) + 1)
@@ -427,6 +460,8 @@ def add_component(page_id, component, title, x, y, w, h, config=None):
 
     comp = {
         'component': component,
+        'componentName': title,
+        'visible': True,
         'i': key,
         'x': x,
         'y': y,
@@ -439,7 +474,7 @@ def add_component(page_id, component, title, x, y, w, h, config=None):
         'config': json.dumps(default_config, ensure_ascii=False),
     }
 
-    _page_components[page_id].append(comp)
+    _page_components[page_id].insert(0, comp)
     return comp
 
 
@@ -990,6 +1025,251 @@ def add_decoration(page_id, x, y, w, h, deco_type=1, color='#00BAFF'):
     }
 
     return add_component(page_id, 'JDragDecoration', f'装饰{deco_type}', x, y, w, h, config)
+
+
+def add_current_time(page_id, x, y, w=280, h=33, fmt='YYYY-MM-DD hh:mm:ss',
+                     show_week='show', hourly_system='12',
+                     color=None, font_weight='normal', letter_spacing=0):
+    """
+    添加实时时钟组件（JCurrentTime）。
+
+    Args:
+        fmt: 时间格式，如 'YYYY-MM-DD hh:mm:ss'
+        show_week: 是否显示星期 'show'/'hide'
+        hourly_system: 时制 '12'/'24'
+        color: 字体颜色（默认根据模式自动设置）
+        font_weight: 字体粗细 'normal'/'bold'
+        letter_spacing: 字间距
+    """
+    mode = _get_mode(page_id)
+    if color is None:
+        color = mode['title_color']
+
+    config = {
+        'dataType': 1,
+        'background': mode['bg'],
+        'borderColor': mode['border_color'],
+        'chartData': '',
+        'option': {
+            'showWeek': show_week,
+            'hourlySystem': hourly_system,
+            'format': fmt,
+            'card': {'title': '', 'extra': '', 'rightHref': '', 'size': 'default'},
+            'body': {
+                'text': '', 'color': color, 'fontWeight': font_weight,
+                'marginLeft': 0, 'marginTop': 0, 'letterSpacing': letter_spacing,
+            },
+        },
+    }
+
+    return add_component(page_id, 'JCurrentTime', '实时时钟', x, y, w, h, config)
+
+
+def add_word_cloud(page_id, title, x, y, w, h, data=None,
+                   font_family='SimSun', color='#FFE472',
+                   min_size=8, max_size=32, shape='circle'):
+    """
+    添加词云图组件（JWordCloud）。
+
+    Args:
+        data: 词云数据 [{'name':'词语','value':9}, ...]，默认使用内置示例数据
+        font_family: 字体
+        color: 文字颜色
+        min_size: 最小字号
+        max_size: 最大字号
+        shape: 词云形状 'circle'/'cardioid'/'diamond'/'triangle'/'star' 等
+    """
+    mode = _get_mode(page_id)
+    if data is None:
+        data = [
+            {'value': 9, 'name': 'AntV'}, {'value': 8, 'name': 'F2'},
+            {'value': 8, 'name': 'G2'}, {'value': 8, 'name': 'G6'},
+            {'value': 8, 'name': 'DataSet'}, {'value': 8, 'name': '墨者学院'},
+            {'value': 6, 'name': 'Analysis'}, {'value': 6, 'name': 'Data Mining'},
+            {'value': 6, 'name': 'Data Vis'}, {'value': 6, 'name': 'Design'},
+            {'value': 6, 'name': 'Grammar'}, {'value': 6, 'name': 'Graphics'},
+            {'value': 6, 'name': 'Graph'}, {'value': 6, 'name': 'Hierarchy'},
+            {'value': 6, 'name': 'Labeling'}, {'value': 6, 'name': 'Layout'},
+            {'value': 6, 'name': 'Quantitative'}, {'value': 6, 'name': 'Relation'},
+            {'value': 6, 'name': 'Statistics'}, {'value': 6, 'name': '可视化'},
+            {'value': 6, 'name': '数据'}, {'value': 6, 'name': '数据可视化'},
+        ]
+
+    config = {
+        'dataType': 1,
+        'background': mode['bg'],
+        'borderColor': mode['border_color'],
+        'chartData': json.dumps(data, ensure_ascii=False),
+        'option': {
+            'fontFamily': font_family,
+            'color': color,
+            'minSize': min_size,
+            'maxSize': max_size,
+            'padding': 8,
+            'customColor': [],
+            'series': [{'shape': shape}],
+            'card': {'title': '', 'extra': '', 'rightHref': '', 'size': 'default'},
+            'title': {
+                'text': title, 'textAlign': 'left', 'show': True,
+                'textStyle': {'color': mode['title_color'], 'fontWeight': 'normal'},
+            },
+        },
+    }
+
+    return add_component(page_id, 'JWordCloud', title, x, y, w, h, config)
+
+
+def add_color_block(page_id, title, x, y, w, h, blocks=None,
+                    line_num=2, font_size=16, color='#fff'):
+    """
+    添加色块指标卡组件（JColorBlock）。
+
+    Args:
+        blocks: 指标数据列表 [{'backgroundColor':'#67C23A','prefix':'标签','value':'12345','suffix':'元'}, ...]
+                默认使用内置4个示例色块
+        line_num: 每行显示几个色块
+        font_size: 数值字号
+        color: 文字颜色
+    """
+    mode = _get_mode(page_id)
+    if blocks is None:
+        blocks = [
+            {'backgroundColor': '#67C23A', 'prefix': '朝阳总销售额', 'value': '12345', 'suffix': '亿'},
+            {'backgroundColor': '#409EFF', 'prefix': '昌平总销售额', 'value': '12345', 'suffix': '亿'},
+            {'backgroundColor': '#E6A23C', 'prefix': '海淀总销售额', 'value': '12345', 'suffix': '亿'},
+            {'backgroundColor': '#F56C6C', 'prefix': '西城总销售额', 'value': '12345', 'suffix': '亿'},
+        ]
+
+    config = {
+        'dataType': 1,
+        'background': mode['bg'],
+        'borderColor': mode['border_color'],
+        'chartData': json.dumps(blocks, ensure_ascii=False),
+        'option': {
+            'whole': False, 'width': 50, 'height': 50, 'lineNum': line_num,
+            'borderSplitx': 20, 'borderSplity': 20, 'decimals': 0,
+            'fontSize': font_size, 'color': color, 'fontWeight': 'normal',
+            'textAlign': 'center', 'padding': 5,
+            'prefixFontSize': 16, 'prefixColor': color, 'prefixFontWeight': 'normal',
+            'prefixSplitx': 0, 'prefixSplity': 0,
+            'suffix': '', 'suffixSplitx': 40, 'suffixFontSize': 16,
+            'suffixColor': color, 'suffixFontWeight': 'normal', 'prefix': '',
+            'card': _make_card(mode, title),
+            'body': {'text': '', 'color': color, 'fontWeight': 'bold',
+                     'marginLeft': 0, 'marginTop': 0},
+        },
+    }
+
+    return add_component(page_id, 'JColorBlock', title, x, y, w, h, config)
+
+
+def add_progress(page_id, title, x, y, w, h, data=None,
+                 bar_width=19, color='#FF9D00', bg_color='#9C9CA1',
+                 border_radius=10):
+    """
+    添加进度条组件（JProgress）。
+
+    Args:
+        data: 进度数据 [{'name':'满意度','value':50}, ...]
+        bar_width: 进度条粗细
+        color: 进度条颜色
+        bg_color: 背景条颜色
+        border_radius: 圆角
+    """
+    mode = _get_mode(page_id)
+    if data is None:
+        data = [{'name': '满意度', 'value': 50}]
+
+    label_color = mode['title_color']
+
+    config = {
+        'dataType': 1,
+        'background': mode['bg'],
+        'borderColor': mode['border_color'],
+        'chartData': json.dumps(data, ensure_ascii=False),
+        'option': {
+            'valueXOffset': 0, 'valueYOffset': 0,
+            'grid': {'show': False, 'top': 0, 'left': 0, 'right': 55,
+                     'bottom': 0, 'containLabel': True},
+            'yAxis': {'yUnit': '', 'axisLabel': {'show': True, 'color': label_color}},
+            'title': {'text': '', 'textAlign': 'left', 'show': False, 'textStyle': {}},
+            'tooltip': {'confine': True, 'trigger': 'axis',
+                        'axisPointer': {'type': 'none'}},
+            'series': [
+                {
+                    'barWidth': bar_width, 'realtimeSort': True,
+                    'label': {'show': False, 'position': 'left',
+                              'formatter': '{c}%', 'color': label_color, 'fontSize': 24},
+                    'itemStyle': {'normal': {'barBorderRadius': border_radius}},
+                    'color': color, 'zlevel': 1,
+                },
+                {
+                    'type': 'bar', 'barGap': '-100%', 'color': bg_color,
+                    'barWidth': bar_width,
+                    'label': {
+                        'show': True, 'valueAnimation': True, 'position': 'right',
+                        'color': label_color, 'fontSize': 18,
+                        'formatter': '{c}', 'offset': [0, 0],
+                    },
+                    'itemStyle': {'normal': {'barBorderRadius': border_radius}},
+                },
+            ],
+            'card': _make_card(mode, title),
+        },
+    }
+
+    return add_component(page_id, 'JProgress', title, x, y, w, h, config)
+
+
+def add_total_progress(page_id, title, x, y, w, h, data=None,
+                       bar_width=19, color='#151B87', bg_color='#eeeeee',
+                       border_radius=10):
+    """
+    添加总进度条组件（JTotalProgress）。
+
+    Args:
+        data: 进度数据 [{'value':50}, ...]
+        bar_width: 进度条粗细
+        color: 进度条颜色
+        bg_color: 背景条颜色
+        border_radius: 圆角
+    """
+    mode = _get_mode(page_id)
+    if data is None:
+        data = [{'value': 50}]
+
+    label_color = mode['title_color']
+    if mode is _BIGSCREEN:
+        bg_color = '#333333'
+
+    config = {
+        'dataType': 1,
+        'background': mode['bg'],
+        'borderColor': mode['border_color'],
+        'chartData': json.dumps(data, ensure_ascii=False),
+        'option': {
+            'targetValue': {},
+            'series': [
+                {
+                    'barWidth': bar_width,
+                    'label': {
+                        'show': True, 'position': 'right', 'offset': [0, -40],
+                        'formatter': '{c}{a}', 'color': label_color, 'fontSize': 24,
+                    },
+                    'itemStyle': {'normal': {'barBorderRadius': border_radius}},
+                    'color': color, 'zlevel': 1,
+                },
+                {
+                    'type': 'bar', 'barGap': '-100%', 'color': bg_color,
+                    'barWidth': bar_width,
+                    'itemStyle': {'normal': {'barBorderRadius': border_radius}},
+                },
+            ],
+            'card': _make_card(mode, title),
+        },
+    }
+
+    return add_component(page_id, 'JTotalProgress', title, x, y, w, h, config)
 
 
 # ============================================================

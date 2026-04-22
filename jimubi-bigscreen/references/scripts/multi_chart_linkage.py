@@ -112,7 +112,7 @@ def parse_param_opts(params_str):
 
 def main():
     parser = argparse.ArgumentParser(description='多图表+联动批量生成（单脚本优化版）')
-    parser.add_argument('api_base', help='API地址，如 http://192.168.1.66:8080/jeecg-boot')
+    parser.add_argument('api_base', help='API地址，如 http://192.168.x.x:8080/jeecg-boot')
     parser.add_argument('token', help='X-Access-Token')
     parser.add_argument('page_id', help='大屏页面ID')
     parser.add_argument('--db-source', help='数据源ID（覆盖config中的设置）')

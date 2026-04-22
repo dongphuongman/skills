@@ -10,12 +10,12 @@
 | 共享数据集 | `"4"` | 复用已有数据集，无需解析 | `linkJmReportShareDb` 关联到报表 |
 | 多文件(Excel/CSV) | `"5"` | 先上传文件，再 `queryFieldBySql`（dbSource=文件数据源ID，SQL 表名加 `jmf.` 前缀） | 详见 `dataset-advanced.md §4.1` |
 | 单文件(Excel/CSV) | `"6"` | 上传文件后系统自动解析，用专用接口 `/dataset/files/single/save`（不能用 saveDb） | 详见 `dataset-advanced.md §4` |
-| JavaBean | `"0"`* | `POST /queryFieldByBean`（传 javaType + javaValue） | `javaType="spring-key"`, `javaValue=Bean名称`；Bean 实现 `IDataSetFactory` |
+| JavaBean | `"2"` | `POST /queryFieldByBean`（传 javaType + javaValue） | `javaType="spring-key"`, `javaValue=Bean名称`；**chart_entry `data_type="javabean"`**；设计态 `/qurestSql` 不可用，数据由运行时引擎调 `createData()` 提供 |
 | Redis | `"0"`* | `queryFieldBySql`（sql=Redis key名，dbSource=Redis数据源ID） | 数据源 dbType="redis"，但**数据集** dbType 仍为 `"0"` |
 | MongoDB | `"0"`* | `queryFieldBySql`（SQL 加 `mongo.` 前缀，dbSource=MongoDB数据源ID） | 数据源 dbType="mongodb"，数据集 dbType 仍为 `"0"` |
 | Elasticsearch | `"0"`* | `queryFieldBySql`（dbSource=ES数据源ID） | 数据源 dbType="es" |
 
-> `*` Redis / MongoDB / ES / JavaBean 的**数据集** dbType 均为 `"0"`，区别在于 `dbSource` 指向对应类型的数据源。
+> `*` Redis / MongoDB / ES 的**数据集** dbType 均为 `"0"`，区别在于 `dbSource` 指向对应类型的数据源。JavaBean 使用独立的 `dbType="2"`，不需要 dbSource，通过 `javaType`+`javaValue` 识别。
 
 ## 多数据集并行
 

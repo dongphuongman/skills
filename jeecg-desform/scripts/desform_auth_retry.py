@@ -7,7 +7,7 @@ JeecgBoot 表单设计器字段权限重试脚本
   python desform_auth_retry.py --api-base <URL> --token <TOKEN> --code <form_code>
 
 示例:
-  python desform_auth_retry.py --api-base http://192.168.1.233:3100/jeecgboot --token eyJ... --code oa_leave_apply
+  python desform_auth_retry.py --api-base <api_base> --token eyJ... --code oa_leave_apply
 """
 
 import argparse

@@ -5,7 +5,7 @@ JeecgBoot 表单设计器（desform）通用工具库
 
 使用示例:
     from desform_utils import *
-    init_api('https://boot3.jeecg.com/jeecgboot', 'your-token')
+    init_api('<api_base>', '<token>')
     form_id, uc = find_or_create_form('Customer Info', 'customer_info')
     widgets = [
         INPUT('客户名称', required=True),
@@ -16,6 +16,7 @@ JeecgBoot 表单设计器（desform）通用工具库
 """
 
 import urllib.request
+import urllib.parse
 import json
 import time
 import random
@@ -36,6 +37,10 @@ _TOKEN = ''
 _SSL_CTX = ssl.create_default_context()
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
+
+# lowApp 模式上下文（由 desform_lowapp_utils.init_lowapp 注入）
+_TENANT_ID = '1'      # X-Tenant-Id，默认 '1'（普通模式）
+_LOW_APP_ID = None    # x-low-app-id，None 表示普通模式
 
 # 固定角色ID（用于授权SQL）
 ROLE_ID = 'f6817f48af4fb3af11b9e8bf182f618b'
@@ -60,16 +65,33 @@ def init_api(api_base, token):
 # ============================================================
 # API 请求
 # ============================================================
-def api_request(path, data=None, method='POST'):
-    """发送 API 请求，返回 JSON 响应"""
-    url = f'{_API_BASE}{path}'
-    headers = {
+def get_headers():
+    """返回当前请求头字典（供外部直接使用 requests 库时调用）"""
+    h = {
         'X-Access-Token': _TOKEN,
         'X-Sign': '00000000000000000000000000000000',
-        'X-Tenant-Id': '1',
+        'X-Tenant-Id': _TENANT_ID,
         'X-Timestamp': str(int(time.time() * 1000)),
-        'Content-Type': 'application/json; charset=UTF-8'
+        'Content-Type': 'application/json; charset=UTF-8',
     }
+    if _LOW_APP_ID:
+        h['x-low-app-id'] = _LOW_APP_ID
+    return h
+
+
+def get_api_base():
+    """返回当前 API 基础地址"""
+    return _API_BASE
+
+
+def api_request(path, data=None, method='POST', params=None):
+    """发送 API 请求，返回 JSON 响应。
+    params: dict，用于 GET 请求的 URL 查询参数（如 {'code': 'student_form'}）
+    """
+    url = f'{_API_BASE}{path}'
+    if params:
+        url = f'{url}?{urllib.parse.urlencode(params)}'
+    headers = get_headers()
     if data is not None:
         json_data = json.dumps(data, ensure_ascii=False).encode('utf-8')
         req = urllib.request.Request(url, data=json_data, headers=headers, method=method)
@@ -227,15 +249,21 @@ def get_form_id(code):
     return _find_by_list(code)
 
 
-def find_or_create_form(name, code):
+def find_or_create_form(name, code, app_menu_group_id=None):
     """查找或创建表单，返回 (form_id, update_count, code)
 
     策略：先 add → 成功则查找 ID；add 失败(code已存在)则查找已有表单。
     结果自动缓存。
+
+    Args:
+        app_menu_group_id: lowApp 模式下的工作表分组ID（可选）
     """
     # 1. 尝试创建
     try:
-        add_r = api_request('/desform/add', {'desformName': name, 'desformCode': code})
+        body = {'desformName': name, 'desformCode': code}
+        if app_menu_group_id is not None:
+            body['appMenuGroupId'] = app_menu_group_id
+        add_r = api_request('/desform/add', body)
         if add_r.get('success'):
             # add 成功，优先从返回值获取 ID
             if add_r.get('result') and add_r['result'].get('id'):
@@ -292,6 +320,55 @@ def get_form_fields(form_code):
     return title_field, fields
 
 
+def _model_to_key(design, model):
+    """从 desformDesignJson 的 list 中，根据 model 找到对应控件的 key。"""
+    def search(items):
+        for item in items:
+            if item.get('model') == model:
+                return item.get('key', '')
+            if item.get('type') == 'card' and 'list' in item:
+                r = search(item['list'])
+                if r:
+                    return r
+        return ''
+    return search(design.get('list', []))
+
+
+def _get_title_model(code):
+    """获取表单标题字段的 model（日历、甘特图视图使用）。
+
+    直接返回 config.titleField 中存储的 model 字符串。
+    若 config.titleField 为空则抛出 ValueError。
+    """
+    form_data = query_form(code)
+    if not form_data:
+        raise ValueError(f'表单 {code} 不存在，无法获取 titleField')
+    design_str = form_data.get('desformDesignJson', '{}')
+    design = json.loads(design_str) if isinstance(design_str, str) else design_str
+    title_model = design.get('config', {}).get('titleField', '')
+    if not title_model:
+        raise ValueError(f'表单 {code} 未设置 titleField，请手动传入 title_field 参数')
+    return title_model
+
+
+def _get_title_key(code):
+    """获取表单标题字段的 key（看板视图专用，其他视图用 _get_title_model）。
+
+    从 config.titleField（存储的是 model）解析出对应控件的 key。
+    若 config.titleField 为空则抛出 ValueError。
+    """
+    form_data = query_form(code)
+    if not form_data:
+        raise ValueError(f'表单 {code} 不存在，无法获取 titleField')
+    design_str = form_data.get('desformDesignJson', '{}')
+    design = json.loads(design_str) if isinstance(design_str, str) else design_str
+    title_model = design.get('config', {}).get('titleField', '')
+    if not title_model:
+        raise ValueError(f'表单 {code} 未设置 titleField，请手动传入 title_field 参数')
+    key = _model_to_key(design, title_model)
+    return key if key else title_model  # 找不到 key 时降级返回 model
+
+
 # ============================================================
 # ID 生成
 # ============================================================
@@ -326,16 +403,23 @@ def _adv(fmt='string', custom=False, split=''):
 
 def make_widget(widget_type, name, class_name, icon, options,
                 required=False, is_sub=False, parent_key=None, extra=None,
-                mobile_options=None):
+                mobile_options=None, model=None, remote_api=None, default_expr=None):
     """创建控件（通用工厂），返回 (widget_dict, key, model)
 
     Args:
+        model: 可选，预分配的 model（用于 table-dict popup 等需要提前知晓自身 model 的场景）
         mobile_options: 移动端覆盖配置（widget 顶层属性），移动端渲染时 merge 到 options。
             例如 radio/checkbox: {"inline": True, "matrixWidth": 120}
             例如 date/time: {"editable": False}
+        remote_api: 可选，远程取值接口地址。支持绝对地址（http(s)://...）或相对地址（/开头）。
+            URL 中可使用 {{上下文变量}} 和 ${表单字段model} 动态传参。
+            例如: '/desform/api/getName?userId={{sysUserCode}}&name=${input_xxx}'
+        default_expr: 可选，默认值表达式（compose 类型）。支持上下文变量 {{varName}} 和字段引用 $fieldModel$。
+            例如: '{{sysUserCode}}'、'{{sysDate}} {{sysTime}}'、'前缀-$input_xxx$'
+            对 text 组件无效（text 组件通过 options.text 设置内容）。
     """
     key = _gen_key()
-    model = _gen_model(widget_type)
+    model = model or _gen_model(widget_type)
     _sleep()
 
     fmt = "number" if widget_type in ("number", "integer", "money", "slider") else "string"
@@ -348,7 +432,7 @@ def make_widget(widget_type, name, class_name, icon, options,
         "type": widget_type, "name": name,
         "className": class_name, "icon": icon,
         "hideTitle": False, "options": options,
-        "remoteAPI": {"url": "", "executed": False},
+        "remoteAPI": {"url": remote_api or "", "executed": False},
         "key": key, "model": model, "modelType": "main",
         "rules": [{"required": True, "message": "${title}必须填写"}] if required else [],
         "isSubItem": is_sub
@@ -359,6 +443,8 @@ def make_widget(widget_type, name, class_name, icon, options,
 
     if widget_type != "link-field":
         w["advancedSetting"] = _adv(fmt, custom, split)
+        if default_expr is not None:
+            w["advancedSetting"]["defaultValue"]["value"] = default_expr
 
     if is_sub and parent_key:
         w["subOptions"] = {"width": "200px", "parentKey": parent_key}
@@ -499,6 +585,52 @@ def GRID(columns, gutter=8, justify='start', align='top',
     return w, key, w["model"]
 
 
+def SUMMARY(name, sub_table_model, field_model, summary_type='inner-sum',
+            width=100, filter=None, *, wrap=True):
+    """汇总控件 — 对子表某列进行汇总计算（只能在主表使用，不能在子表内使用）。
+
+    用于替代 FORMULA(mode='SUM') 来汇总子表列数据（FORMULA 的 SUM 模式只能汇总主表字段）。
+
+    Args:
+        name: 控件名称，如 '合计金额'
+        sub_table_model: 子表的 model，如 'sub_table_design_xxx'
+        field_model: 要汇总的子表列 model，如 'formula_xxx'（预估金额列）
+        summary_type: 汇总方式，'inner-sum'(求和), 'inner-average'(平均), 'inner-max'(最大), 'inner-min'(最小),
+                      'inner-record-count'(记录数), 'inner-completed-count'(已填计数), 'inner-incompletely-count'(未填计数),
+                      'inner-date-earliest'(最早日期), 'inner-date-latest'(最晚日期)
+        filter: 过滤条件，如 {"enabled": True, "matchType": "AND", "rules": [...]}
+        wrap: 是否包裹 AutoGrid card（默认 True）
+
+    用法:
+        sub_table, sub_key = make_sub_table('明细', [])
+        sub_amount = SUB_PRODUCT('金额', sub_key, [price_model, qty_model])
+        # ... 组装子表 ...
+        total = SUMMARY('合计金额', sub_table['model'], sub_amount[2])
+    """
+    key = _gen_key()
+    model = _gen_model("summary")
+    _sleep()
+    default_filter = {"enabled": False, "rules": [], "matchType": "AND"}
+    w = {
+        "type": "summary", "name": name,
+        "className": "form-summary", "icon": "icon-sigma",
+        "hideTitle": False,
+        "options": {
+            "linkTable": sub_table_model,
+            "field": field_model,
+            "summary": summary_type,
+            "filter": filter if filter else default_filter,
+            "hidden": False, "hiddenOnAdd": False, "required": False, "fieldNote": "",
+            "autoWidth": width,
+        },
+        "key": key, "model": model, "modelType": "main",
+        "rules": [], "isSubItem": False
+    }
+    if wrap:
+        return _card_wrap(w, key, model)
+    return w, key, model
+
+
 # ============================================================
 # 子表
 # ============================================================
@@ -523,9 +655,14 @@ def make_sub_table(name, sub_widgets, column_number=2, operation_mode=1,
     columns = []
     for i in range(column_number):
         columns.append({"span": col_span, "list": []})
-    # 将 sub_widgets 均匀分配到各列（轮流分配）
+    # 将 sub_widgets 顺序填充到各列（先填满第1列，再填第2列……）
+    # 这样表格视图按列顺序读取时，字段顺序与定义顺序一致
+    import math
+    per_col = math.ceil(len(sub_widgets) / column_number) if column_number > 0 else len(sub_widgets)
     for idx, w in enumerate(sub_widgets):
-        columns[idx % column_number]["list"].append(w)
+        col_idx = idx // per_col if per_col > 0 else 0
+        col_idx = min(col_idx, column_number - 1)
+        columns[col_idx]["list"].append(w)
     return {
         "type": "sub-table-design", "name": name,
         "className": "form-sub-table", "icon": "icon-table",
@@ -578,12 +715,13 @@ def _finalize(w, k, m, wrap, is_sub, col_width, sub_extra=None):
 
 
 def INPUT(name, required=False, width=100, placeholder='', unique=False,
+          fill_rule_code='', readonly=False,
           *, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
     opts = {
         "width": "100%", "defaultValue": "", "required": required,
         "dataType": None, "pattern": "", "patternMessage": "",
-        "placeholder": placeholder, "clearable": False, "readonly": False,
-        "disabled": False, "fillRuleCode": "", "showPassword": False,
+        "placeholder": placeholder, "clearable": False, "readonly": readonly,
+        "disabled": False, "fillRuleCode": fill_rule_code, "showPassword": False,
         "unique": unique, "hidden": False, "hiddenOnAdd": False,
         "fieldNote": "",
     }
@@ -595,11 +733,13 @@ def INPUT(name, required=False, width=100, placeholder='', unique=False,
 
 
 def TEXTAREA(name, required=False, width=100, placeholder='',
+             fill_rule_code='', readonly=False,
              *, wrap=True, is_sub=False, parent_key=None, col_width='250px', **kw):
     opts = {
         "width": "100%", "defaultValue": "", "required": required,
         "disabled": False, "pattern": "", "patternMessage": "",
-        "placeholder": placeholder, "readonly": False, "unique": False,
+        "placeholder": placeholder, "readonly": readonly, "unique": False,
+        "fillRuleCode": fill_rule_code,
         "hidden": False, "hiddenOnAdd": False, "fieldNote": "",
     }
     if not is_sub:
@@ -609,11 +749,11 @@ def TEXTAREA(name, required=False, width=100, placeholder='',
     return _finalize(w, k, m, wrap, is_sub, col_width)
 
 
-def NUMBER(name, required=False, width=100, unit='', precision=0,
+def NUMBER(name, required=False, width=100, unit='', precision=0, placeholder='',
            *, wrap=True, is_sub=False, parent_key=None, col_width='120px', **kw):
     opts = {
         "width": "", "required": required, "defaultValue": 0,
-        "placeholder": "", "precision": precision, "controls": False,
+        "placeholder": placeholder, "precision": precision, "controls": False,
         "min": 0, "minUnlimited": True, "max": 100, "maxUnlimited": True,
         "step": 1, "disabled": False, "controlsPosition": "right",
         "unitText": unit, "unitPosition": "suffix", "showPercent": False,
@@ -627,10 +767,10 @@ def NUMBER(name, required=False, width=100, unit='', precision=0,
     return _finalize(w, k, m, wrap, is_sub, col_width)
 
 
-def INTEGER(name, required=False, width=100, unit='',
+def INTEGER(name, required=False, width=100, unit='', placeholder='请输入整数',
             *, wrap=True, is_sub=False, parent_key=None, col_width='120px', **kw):
     opts = {
-        "width": "", "placeholder": "请输入整数", "required": required,
+        "width": "", "placeholder": placeholder, "required": required,
         "min": 0, "minUnlimited": True, "max": 100, "maxUnlimited": True,
         "step": 1, "precision": 0, "controls": not bool(unit), "disabled": False,
         "controlsPosition": "right", "unitText": unit, "unitPosition": "suffix",
@@ -644,10 +784,10 @@ def INTEGER(name, required=False, width=100, unit='',
     return _finalize(w, k, m, wrap, is_sub, col_width)
 
 
-def MONEY(name, required=False, width=100, unit='元',
+def MONEY(name, required=False, width=100, unit='元', placeholder='请输入金额',
           *, wrap=True, is_sub=False, parent_key=None, col_width='150px', **kw):
     opts = {
-        "width": "180px", "placeholder": "请输入金额", "required": required,
+        "width": "180px", "placeholder": placeholder, "required": required,
         "unitText": unit, "unitPosition": "suffix", "precision": 2,
         "hidden": False, "disabled": False, "hiddenOnAdd": False,
         "fieldNote": "",
@@ -659,12 +799,12 @@ def MONEY(name, required=False, width=100, unit='元',
     return _finalize(w, k, m, wrap, is_sub, col_width)
 
 
-def DATE(name, required=False, width=100, fmt='yyyy-MM-dd',
+def DATE(name, required=False, width=100, fmt='yyyy-MM-dd', placeholder='',
          *, wrap=True, is_sub=False, parent_key=None, col_width='180px', **kw):
     opts = {
         "defaultValue": "", "defaultValueType": 1,
         "readonly": False, "disabled": False, "editable": True,
-        "clearable": True, "placeholder": "", "startPlaceholder": "",
+        "clearable": True, "placeholder": placeholder, "startPlaceholder": "",
         "endPlaceholder": "", "designType": "date", "type": "date",
         "format": fmt, "timestamp": True, "required": required,
         "width": "", "hidden": False, "hiddenOnAdd": False,
@@ -713,7 +853,8 @@ def _make_options_list(options, colors=None):
 
     支持两种输入格式：
     - 字符串列表: ['选项1', '选项2'] → [{"value": "选项1", "itemColor": "#xxx"}, ...]
-    - dict 列表: [{'value': '1', 'label': '男'}] → [{"value": "1", "itemColor": "#xxx"}, ...]
+    - dict 列表: [{'value': '1', 'label': '男'}] → [{"value": "1", "label": "男", "itemColor": "#xxx"}, ...]
+      注：label 与 value 不同时，label 会被保留在输出中；调用方应同步将 showLabel 设为 True。
 
     注意：value 必须是简单字符串，不能是嵌套对象，否则渲染时显示 [object Object]。
     """
@@ -725,20 +866,28 @@ def _make_options_list(options, colors=None):
         # dict 格式时提取 value 字段，避免嵌套对象导致 [object Object]
         if isinstance(opt, dict):
             val = opt.get('value', opt.get('label', str(opt)))
+            item = {"value": val, "itemColor": c}
+            label = opt.get('label')
+            if label is not None and str(label) != str(val):
+                item["label"] = label
         else:
             val = opt
-        result.append({"value": val, "itemColor": c})
+            item = {"value": val, "itemColor": c}
+        result.append(item)
     return result
 
 
 def RADIO(name, options, required=False, width=100, dict_code=None,
           *, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
     """单选框组。options: 字符串列表 或 dict_code 指定系统字典"""
+    options_list = _make_options_list(options) if options else []
     opts = {
         "inline": True, "matrixWidth": 120, "defaultValue": "",
-        "showType": "default", "showLabel": False, "useColor": False,
+        "showType": "default",
+        "showLabel": any("label" in o for o in options_list),
+        "useColor": False,
         "colorIteratorIndex": 3,
-        "options": _make_options_list(options) if options else [],
+        "options": options_list,
         "required": required, "width": "", "remote": False,
         "remoteOptions": [], "props": {"value": "value", "label": "label"},
         "remoteFunc": "", "disabled": False, "hidden": False,
@@ -760,11 +909,13 @@ def RADIO(name, options, required=False, width=100, dict_code=None,
 
 def CHECKBOX(name, options, required=False, width=100, dict_code=None,
              *, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
+    options_list = _make_options_list(options) if options else []
     opts = {
         "inline": True, "matrixWidth": 120, "defaultValue": [],
-        "showLabel": False, "showType": "default", "useColor": False,
+        "showLabel": any("label" in o for o in options_list),
+        "showType": "default", "useColor": False,
         "colorIteratorIndex": 3,
-        "options": _make_options_list(options) if options else [],
+        "options": options_list,
         "required": required, "width": "", "remote": False,
         "remoteOptions": [], "props": {"value": "value", "label": "label"},
         "remoteFunc": "", "disabled": False, "hidden": False,
@@ -785,14 +936,17 @@ def CHECKBOX(name, options, required=False, width=100, dict_code=None,
 
 
 def SELECT(name, options, required=False, width=100, multiple=False, dict_code=None,
+           placeholder='',
            *, wrap=True, is_sub=False, parent_key=None, col_width='150px', **kw):
+    options_list = _make_options_list(options) if options else []
     opts = {
         "defaultValue": "" if not multiple else [],
         "multiple": multiple, "disabled": False, "clearable": True,
-        "placeholder": "", "required": required, "showLabel": False,
+        "placeholder": placeholder, "required": required,
+        "showLabel": any("label" in o for o in options_list),
         "showType": "default", "width": "", "useColor": False,
         "colorIteratorIndex": 3,
-        "options": _make_options_list(options) if options else [],
+        "options": options_list,
         "remote": False, "filterable": False,
         "remoteOptions": [], "props": {"value": "value", "label": "label"},
         "remoteFunc": "", "hidden": False, "hiddenOnAdd": False,
@@ -935,6 +1089,7 @@ def DEPART_POST(name, required=False, width=100, placeholder='',
 
 def TABLE_DICT(name, dict_table='', dict_code_col='', dict_text_col='',
                required=False, width=100, multiple=False, style='select',
+               query_scope='cgreport', filterable=True, clearable=True, disabled=False,
                *, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
     """表字典控件
 
@@ -942,45 +1097,67 @@ def TABLE_DICT(name, dict_table='', dict_code_col='', dict_text_col='',
         name: 控件名称
         dict_table: 字典表名（Online报表编码或数据库表名）
         dict_code_col: 值字段列名
-        dict_text_col: 显示字段列名
+        dict_text_col: 显示字段列名（popup 模式下会自动设为自身 model）
         style: 展示风格 'select'(下拉) 或 'popup'(弹窗)
+        query_scope: 查询模式 'cgreport'(Online报表) 或 'database'(数据库表)
+        filterable: 是否可搜索（仅 style=select 有效，默认 True）
+        clearable: 是否可清除（默认 True）
+        disabled: 是否禁用（默认 False）
     """
+    # popup 模式下 dictText 必须为该控件自身的 model，需提前生成
+    model_for_dicttext = None
+    if style == 'popup':
+        model_for_dicttext = _gen_model('table-dict')
+        _sleep()
+
+    text_col = model_for_dicttext if style == 'popup' else dict_text_col
+
     opts = {
         "width": "100%", "defaultValue": "", "placeholder": "点击选择表字典",
         "showIcon": True, "iconName": "icon-popup",
-        "disabled": False, "multiple": multiple, "clearable": True,
+        "disabled": disabled, "multiple": multiple, "clearable": clearable,
         "style": style, "dictTable": dict_table,
-        "dictCode": dict_code_col, "dictText": dict_text_col,
-        "hidden": False, "required": required, "filterable": True,
-        "queryScope": "cgreport",
+        "dictCode": dict_code_col, "dictText": text_col,
+        "hidden": False, "required": required, "filterable": filterable,
+        "queryScope": query_scope,
         "hiddenOnAdd": False, "fieldNote": "",
     }
     if not is_sub:
         opts["autoWidth"] = width
     w, k, m = make_widget("table-dict", name, "form-dict", "icon-dict", opts,
-                          required=required, is_sub=is_sub, parent_key=parent_key, **kw)
+                          required=required, is_sub=is_sub, parent_key=parent_key, model=model_for_dicttext, **kw)
     return _finalize(w, k, m, wrap, is_sub, col_width)
 
 
-def SELECT_TREE(name, category_code='', required=False, width=100, multiple=False, placeholder='',
+def SELECT_TREE(name, category_code='B02', required=False, width=100, multiple=False, placeholder='',
+                disabled=False, data_from='category', table_conf=None,
                 *, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
     """下拉树控件
 
     Args:
         name: 控件名称
-        category_code: 分类字典编码（dataFrom='category' 时使用）
+        category_code: 分类字典编码（data_from='category' 时使用，默认 'B02'）
+        disabled: 是否禁用（默认 False）
+        data_from: 数据来源 'category'（分类树，默认）或 'table'（自定义表树）
+        table_conf: 自定义表树配置（data_from='table' 时使用），dict，支持字段：
+            name(表名), code(值字段), text(显示字段), pidField(父节点字段),
+            rootPid(根节点值), leaf(叶子标识字段), converIsLeafVal(bool)
     """
+    table_defaults = {
+        "name": "", "code": "", "text": "",
+        "pidField": "", "rootPid": "", "leaf": "",
+        "converIsLeafVal": True,
+    }
+    if data_from == 'table' and table_conf:
+        table_defaults.update(table_conf)
+
     opts = {
         "defaultValue": "", "placeholder": placeholder, "width": "",
-        "disabled": False, "multiple": multiple,
-        "dataFrom": "category",
+        "disabled": disabled, "multiple": multiple,
+        "dataFrom": data_from,
         "conf": {
             "category": {"code": category_code},
-            "table": {
-                "name": "", "code": "", "text": "",
-                "pidField": "", "rootPid": "", "leaf": "",
-                "converIsLeafVal": True,
-            },
+            "table": table_defaults,
             "condition": "",
             "conditionOnlyRoot": True,
         },
@@ -1174,15 +1351,17 @@ def BARCODE(name, source_model='', code_type='barcode', max_width=180,
     return w, k, m
 
 
-def CAPITAL_MONEY(name, money_widget_key='', *, wrap=True, **kw):
+def CAPITAL_MONEY(name, money_widget_key='', money_field='', *, wrap=True, **kw):
     """大写金额控件 — 关联一个金额/数字字段，自动转换为中文大写
 
     Args:
-        money_widget_key: 关联的金额控件 key
+        money_widget_key: 关联的金额控件 key（直接指定）
+        money_field: 关联的字段中文名（由 _post_process_widgets 解析为 key）
     """
-    w, k, m = make_widget("capital-money", name, "form-money", "icon-money", {
-        "moneyWidgetKey": money_widget_key, "hidden": False,
-    }, **kw)
+    opts = {"moneyWidgetKey": money_widget_key, "hidden": False}
+    if money_field:
+        opts["moneyField"] = money_field
+    w, k, m = make_widget("capital-money", name, "form-money", "icon-money", opts, **kw)
     if wrap:
         return _card_wrap(w, k, m)
     return w, k, m
@@ -1343,15 +1522,16 @@ def TABS(tab_labels=None, tab_type='border-card', position='top'):
 
 def LINK_RECORD(name, source_code, title_field, show_fields=None,
                 required=False, width=100, show_mode='single', show_type='card',
-                *, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
+                *, is_self=False, wrap=True, is_sub=False, parent_key=None, col_width='200px', **kw):
     """关联记录控件，返回 (card_or_widget, key, model)
 
     Args:
-        source_code: 源表单 desformCode
+        source_code: 源表单 desformCode；自关联时传本表单自身的 desformCode
         title_field: 源表单标题字段 model
         show_fields: 源表单展示字段 model 列表
         show_mode: 'single' 或 'many'
         show_type: 'card', 'select', 'table'
+        is_self: 是否为自关联（source_code == 本表单自身），设为 True 时会在控件顶层写入 isSelf=true
     """
     opts = {
         "sourceCode": source_code, "showMode": show_mode, "showType": show_type,
@@ -1363,13 +1543,19 @@ def LINK_RECORD(name, source_code, title_field, show_fields=None,
         "createMode": {"add": True, "select": False, "params": {"selectLinkModel": ""}},
         "width": "100%", "defaultValue": "", "defaultValType": "none",
         "required": required, "disabled": False, "hidden": False,
-        "isSubTable": False, "isSelf": False,
         "hiddenOnAdd": False, "fieldNote": "",
     }
     if not is_sub:
         opts["autoWidth"] = width
+    # is_self 是控件顶层属性（不在 options 内），通过 extra 注入
+    extra = {"isSelf": True} if is_self else None
+    # 自关联时 valueSplit 应为空串（make_widget 默认 "," 给 link-record，需覆盖）
     w, k, m = make_widget("link-record", name, "form-link-record", "icon-link", opts,
-                          required=required, is_sub=is_sub, parent_key=parent_key, **kw)
+                          required=required, is_sub=is_sub, parent_key=parent_key,
+                          extra=extra, **kw)
+    if is_self:
+        # valueSplit 在 advancedSetting 内，make_widget 已生成，直接覆盖
+        w["advancedSetting"]["defaultValue"]["valueSplit"] = ""
     if is_sub:
         w["subOptions"]["width"] = col_width
         return w, k, m
@@ -1408,8 +1594,8 @@ def FORMULA(name, mode='CUSTOM', expression='', fields=None,
     """公式控件
 
     Args:
-        mode: 数值模式（必须大写）: 'SUM', 'AVERAGE', 'MAX', 'MIN', 'PRODUCT', 'CUSTOM'
-              日期模式: 'DATEIF', 'DATEADD', 'NOW_DATEIF'
+        mode: 数值模式(必须大写): 'SUM', 'AVERAGE', 'MAX', 'MIN', 'PRODUCT', 'CUSTOM'
+              日期模式: 'DATEIF', 'DATEADD', 'NOW_DATEIF', 'PAST_NOW_DATEIF'
         expression: 自定义表达式（mode='CUSTOM' 时使用），字段引用语法: $model$
         fields: SUM/AVERAGE 等预定义模式时的字段 model 列表
         date_begin: 日期模式 — 开始日期字段引用，如 '$date_model$'
@@ -1420,7 +1606,7 @@ def FORMULA(name, mode='CUSTOM', expression='', fields=None,
         date_print_format: DATEADD 模式 — 输出格式，如 'YYYY-MM-DD HH:mm:ss'
     """
     mode = mode.upper()
-    _DATE_MODES = {'DATEIF', 'DATEADD', 'NOW_DATEIF'}
+    _DATE_MODES = {'DATEIF', 'DATEADD', 'NOW_DATEIF', 'PAST_NOW_DATEIF'}
     opt_type = 'date' if mode in _DATE_MODES else 'number'
     opts = {
         "type": opt_type, "mode": mode, "expression": expression,
@@ -1516,13 +1702,19 @@ def SUB_FILE(name, parent_key, required=False, col_width='200px'):
     return FILE(name, required=required, wrap=False, is_sub=True, parent_key=parent_key, col_width=col_width)
 
 def SUB_TABLE_DICT(name, parent_key, dict_table='', dict_code_col='', dict_text_col='',
-                   required=False, col_width='200px'):
+                   required=False, col_width='200px', multiple=False, style='select',
+                   query_scope='cgreport', filterable=True, clearable=True, disabled=False):
     return TABLE_DICT(name, dict_table=dict_table, dict_code_col=dict_code_col,
                       dict_text_col=dict_text_col, required=required,
+                      multiple=multiple, style=style, query_scope=query_scope,
+                      filterable=filterable, clearable=clearable, disabled=disabled,
                       wrap=False, is_sub=True, parent_key=parent_key, col_width=col_width)
 
-def SUB_SELECT_TREE(name, parent_key, category_code='', required=False, col_width='200px'):
+def SUB_SELECT_TREE(name, parent_key, category_code='', required=False, col_width='200px',
+                    multiple=False, disabled=False, data_from='category', table_conf=None):
     return SELECT_TREE(name, category_code=category_code, required=required,
+                       multiple=multiple, disabled=disabled,
+                       data_from=data_from, table_conf=table_conf,
                        wrap=False, is_sub=True, parent_key=parent_key, col_width=col_width)
 
 def SUB_LINK_RECORD(name, parent_key, source_code, title_field, show_fields=None,
@@ -1569,41 +1761,6 @@ def SUB_PRODUCT(name, parent_key, field_models, col_width='150px', unit=''):
                        col_width=col_width, unit=unit)
 
 
-def SUMMARY(name, sub_table_model, field_model, summary_type='inner-sum', width=100):
-    """汇总控件 — 对子表某列进行汇总计算。
-
-    用于替代 FORMULA(mode='SUM') 来汇总子表列数据（FORMULA 的 SUM 模式只能汇总主表字段）。
-
-    Args:
-        name: 控件名称，如 '合计金额'
-        sub_table_model: 子表的 model，如 'sub_table_design_xxx'
-        field_model: 要汇总的子表列 model，如 'formula_xxx'（预估金额列）
-        summary_type: 汇总方式，'inner-sum'(求和), 'inner-avg'(平均), 'inner-max', 'inner-min', 'inner-count'
-
-    用法:
-        sub_table, sub_key = make_sub_table('明细', [])
-        sub_amount = SUB_PRODUCT('金额', sub_key, [price_model, qty_model])
-        # ... 组装子表 ...
-        total = SUMMARY('合计金额', sub_table['model'], sub_amount[2])
-    """
-    key = _gen_key()
-    model = _gen_model("summary")
-    _sleep()
-    w = {
-        "type": "summary", "name": name,
-        "className": "form-summary", "icon": "icon-sigma",
-        "hideTitle": False,
-        "options": {
-            "linkTable": sub_table_model,
-            "field": field_model,
-            "summary": summary_type,
-            "filter": {"enabled": False, "rules": [], "matchType": "AND"},
-            "hidden": False, "hiddenOnAdd": False, "required": False, "fieldNote": ""
-        },
-        "key": key, "model": model, "modelType": "main",
-        "rules": [], "isSubItem": False
-    }
-    return w, key, model
 
 
 # ============================================================
@@ -1860,7 +2017,8 @@ def _apply_word_layout(widgets, form_name=''):
     return top_items, all_models
 
 
-def build_design_json(widgets, title_model, form_style='normal', expand=None):
+def build_design_json(widgets, title_model, form_style='normal', expand=None,
+                      config_overrides=None):
     """组装完整的 desformDesignJson
 
     Args:
@@ -1870,6 +2028,8 @@ def build_design_json(widgets, title_model, form_style='normal', expand=None):
             - 'normal': 默认风格
             - 'word': Word 风格（表单设计器内置 CSS 自动生效）
         expand: JS/CSS 增强配置 dict，格式: {"js": "...", "css": "...", "url": {"js": "...", "css": "..."}}
+        config_overrides: dict，覆盖 config 中任意字段（最终 merge 到 config 上），例如:
+            {"customRequestURL": [{"url": "https://..."}], "transactional": False}
     """
     is_word = (form_style == 'word')
     has_widgets = sorted(list(_collect_types(widgets)))
@@ -1903,7 +2063,7 @@ def build_design_json(widgets, title_model, form_style='normal', expand=None):
                 base_expand['url']['css'] = expand['url']['css']
     expand = base_expand
 
-    return {
+    result = {
         "list": widgets,
         "config": {
             "formStyle": "word" if is_word else "normal",
@@ -1940,10 +2100,13 @@ def build_design_json(widgets, title_model, form_style='normal', expand=None):
             "bigDataMode": False
         }
     }
+    if config_overrides:
+        result["config"].update(config_overrides)
+    return result
 
 
 def save_design(form_id, form_code, widgets, title_model, update_count=1, form_style='normal',
-                expand=None):
+                expand=None, config_overrides=None):
     """保存表单设计到 API
 
     Args:
@@ -1954,11 +2117,14 @@ def save_design(form_id, form_code, widgets, title_model, update_count=1, form_s
         update_count: 当前 updateCount（从 find_or_create_form 获取）
         form_style: 表单风格 'normal' 或 'word'
         expand: JS/CSS 增强配置 dict（可选），见 build_design_json
+        config_overrides: dict，覆盖 config 中任意字段，例如:
+            {"customRequestURL": [{"url": "https://..."}], "transactional": False}
 
     Returns:
         API 响应 dict
     """
-    design_json = build_design_json(widgets, title_model, form_style, expand=expand)
+    design_json = build_design_json(widgets, title_model, form_style, expand=expand,
+                                    config_overrides=config_overrides)
     payload = {
         'id': form_id,
         'desformDesignJson': json.dumps(design_json, ensure_ascii=False),
@@ -2262,6 +2428,255 @@ def query_form(code):
     return None
 
 
+# ============================================================
+# 设计 JSON 预处理工具（手动修改设计 JSON 再保存）
+# ============================================================
+
+def extract_field_table_from_design(design_json):
+    """从设计 JSON 中提取字段参照表
+
+    遍历整个 list 结构（包括 card/grid/tabs/sub-table），
+    返回每个有效控件的 {name, key, model, type}。
+
+    Args:
+        design_json: desformDesignJson dict
+
+    Returns:
+        list[dict]  每项包含 name, key, model, type
+    """
+    rows = []
+
+    def _visit(w, prefix=''):
+        wtype = w.get('type', '')
+        name = w.get('name', w.get('title', ''))
+        key = w.get('key', '')
+        model = w.get('model', '')
+
+        # card 容器：透传，不记录自身
+        if wtype == 'card':
+            for inner in w.get('list', []):
+                _visit(inner, prefix)
+            return
+
+        # grid 容器：透传
+        if wtype == 'grid':
+            for col in w.get('cols', []):
+                for item in col.get('list', []):
+                    _visit(item, prefix)
+            return
+
+        # tabs 容器：透传
+        if wtype == 'tabs':
+            for pane in w.get('list', []):
+                for item in pane.get('list', []):
+                    _visit(item, prefix)
+            return
+
+        # 子表：记录自身，再递归进入列
+        if wtype == 'sub-table-design':
+            if key and model:
+                rows.append({'name': prefix + name, 'key': key, 'model': model, 'type': wtype})
+            sub_prefix = f'  [{name}] '
+            for col in w.get('columns', []):
+                for sub_w in col.get('list', []):
+                    _visit(sub_w, sub_prefix)
+            return
+
+        # 普通控件
+        if key and model:
+            rows.append({'name': prefix + name, 'key': key, 'model': model, 'type': wtype})
+
+    for w in design_json.get('list', []):
+        _visit(w)
+
+    return rows
+
+
+def export_design_json(code, output_path=None):
+    """查询已有表单的设计 JSON 并导出到文件（预处理功能——用于修改表单场景）
+
+    AI 可在修改后调用 save_design_from_file() 将修改保存到后台。
+
+    Args:
+        code: 表单编码
+        output_path: 导出路径（可选，不传则自动生成临时文件）
+
+    Returns:
+        (file_path, field_rows)
+        - file_path:   导出的文件路径
+        - field_rows:  字段参照表 list[dict(name, key, model, type)]
+    """
+    import tempfile
+
+    form_data = query_form(code)
+    if not form_data:
+        raise ValueError(f'表单 {code} 不存在')
+
+    design_json_str = form_data.get('desformDesignJson', '{}')
+    design_json = json.loads(design_json_str) if isinstance(design_json_str, str) else design_json_str
+
+    if not output_path:
+        tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False,
+            encoding='utf-8', prefix=f'desform_{code}_'
+        )
+        output_path = tmp.name
+        json.dump(design_json, tmp, ensure_ascii=False, indent=2)
+        tmp.close()
+    else:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(design_json, f, ensure_ascii=False, indent=2)
+
+    field_rows = extract_field_table_from_design(design_json)
+
+    print(f'\n[预处理] 表单 {code} 设计JSON已导出')
+    print(f'  文件路径: {output_path}')
+    print(f'\n  {"字段名称":<20} {"key":<35} {"model":<45} {"type"}')
+    print(f'  {"-"*20} {"-"*35} {"-"*45} {"-"*15}')
+    for row in field_rows:
+        print(f'  {row["name"]:<20} {row["key"]:<35} {row["model"]:<45} {row["type"]}')
+    print(f'\n修改完成后，调用 save_design_from_file("{code}", r"{output_path}") 保存')
+
+    return output_path, field_rows
+
+
+def save_design_from_file(code, file_path):
+    """从文件读取设计 JSON 并保存到后台（预处理功能的最后一步）
+
+    适用于：
+    - desform_creator.py --preprocess 生成临时文件，AI 修改后调用本函数保存
+    - export_design_json() 导出后，AI 修改后调用本函数保存
+
+    Args:
+        code:      表单编码
+        file_path: 设计 JSON 文件路径
+
+    Returns:
+        API 响应 dict
+    """
+    with open(file_path, 'r', encoding='utf-8') as f:
+        design_json = json.load(f)
+
+    # 获取最新 updateCount（避免版本冲突）
+    form_data = query_form(code)
+    if not form_data:
+        raise ValueError(f'表单 {code} 不存在，无法保存设计JSON')
+
+    fid = form_data['id']
+    update_count = form_data.get('updateCount', 0)
+
+    payload = {
+        'id': fid,
+        'desformDesignJson': json.dumps(design_json, ensure_ascii=False),
+        'updateCount': update_count,
+        'autoNumberDesignConfig': {'update': {}, 'current': {}},
+        'refTableDefaultValDbSync': {'changes': {}, 'removeKeys': []}
+    }
+    result = api_request('/desform/edit', payload, method='PUT')
+
+    if result.get('success'):
+        print(f'  {code} 设计JSON保存成功')
+        _cache_put(code, fid, update_count + 1)
+        return result
+
+    raise RuntimeError(f'{code} 设计JSON保存失败: {result.get("message", "未知错误")}')
+
+
+# ============================================================
+# designConfig 快捷更新
+# ============================================================
+
+def _deep_merge_config(base, updates):
+    """递归深度合并 config dict（原地修改 base）
+
+    合并规则：
+    - updates 的值是 dict 且 base 中对应值也是 dict：递归合并（只覆盖指定子字段）
+    - updates 的值是 list：整体替换（数组不做元素级合并）
+    - 其他类型（str/int/bool/None）：直接覆盖
+    - base 中不存在的 key：直接写入
+    """
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge_config(base[key], value)
+        else:
+            # list、基本类型、None、以及 base 中不存在的 key 均整体替换
+            base[key] = value
+
+
+def update_design_config(code, config_updates):
+    """快捷更新表单的 designConfig
+
+    自动查询表单最新设计 JSON，深度合并 config_updates 后保存。
+    适用于修改发布设置、填报通知、打印设置、业务规则等 config 字段，
+    无需手动处理 updateCount 或完整的 designJson。
+
+    合并规则（深度合并，非浅覆盖）：
+    - dict 值：递归合并，只覆盖指定的子字段，其余子字段保持不变
+      例如 {"dialogOptions": {"width": 800}} 只更新 width，不影响 top/padding
+    - list 值：整体替换（bizRuleConfig、customRequestURL 等数组必须传完整内容）
+    - 其他类型（str/int/bool/None）：直接覆盖
+
+    Args:
+        code:           表单编码
+        config_updates: dict，要更新的 config 字段。示例：
+            # 打印设置
+            {"allowPrint": True, "disabledAutoGrid": False}
+            # 填报通知
+            {"enableNotice": True, "noticeMode": "always",
+             "noticeType": "system,email", "noticeReceiver": "admin"}
+            # 只更新 dialogOptions 中的 width（其余字段不变）
+            {"dialogOptions": {"width": 800}}
+            # 业务规则（数组整体替换，需传完整列表）
+            {"bizRuleConfig": [...]}
+            # 外部链接
+            {"allowExternalLink": True, "externalTitle": "我的表单"}
+
+    Returns:
+        API 响应 dict
+
+    Raises:
+        ValueError:    表单不存在
+        RuntimeError:  保存失败
+    """
+    form_data = query_form(code)
+    if not form_data:
+        raise ValueError(f'表单 {code} 不存在')
+
+    fid = form_data['id']
+    update_count = form_data.get('updateCount', 0)
+
+    # 解析当前设计 JSON（可能是字符串或已解析的 dict）
+    raw = form_data.get('desformDesignJson', '{}')
+    if isinstance(raw, str):
+        design_json = json.loads(raw) if raw.strip() else {}
+    else:
+        design_json = raw if raw else {}
+
+    # 深度合并到当前 config
+    current_config = design_json.get('config', {})
+    _deep_merge_config(current_config, config_updates)
+    design_json['config'] = current_config
+
+    payload = {
+        'id': fid,
+        'desformDesignJson': json.dumps(design_json, ensure_ascii=False),
+        'updateCount': update_count,
+        'autoNumberDesignConfig': {'update': {}, 'current': {}},
+        'refTableDefaultValDbSync': {'changes': {}, 'removeKeys': []},
+    }
+    result = api_request('/desform/edit', payload, method='PUT')
+
+    if result.get('success'):
+        _cache_put(code, fid, update_count + 1)
+        updated_keys = ', '.join(str(k) for k in config_updates.keys())
+        print(f'  [{code}] designConfig 已更新: {updated_keys}')
+        return result
+
+    raise RuntimeError(
+        f'[{code}] designConfig 更新失败: {result.get("message", "未知错误")}'
+    )
+
+
 def delete_form(code_or_id, form_id=None):
     """删除表单：逻辑删除 → 真实删除
 
@@ -2348,13 +2763,15 @@ def delete_form(code_or_id, form_id=None):
     return deleted_ids
 
 
-def update_form(code, widgets, title_index=0):
+def update_form(code, widgets, title_index=0, config_overrides=None):
     """修改已有表单设计：查询 → 重新保存设计 → 返回 (form_id, title_model)
 
     Args:
         code: 表单编码
         widgets: 新的控件列表（同 create_form 格式）
         title_index: 标题字段在 widgets 中的索引
+        config_overrides: dict，覆盖 config 中任意字段，例如:
+            {"customRequestURL": [{"url": "https://..."}], "transactional": False}
     """
     # 查询表单（带缓存）
     form_id, uc = get_form_id(code)
@@ -2375,7 +2792,8 @@ def update_form(code, widgets, title_index=0):
     title_model = all_models[title_index][1] if title_index < len(all_models) else all_models[0][1]
 
     # 保存设计
-    save_design(form_id, code, top_items, title_model, uc)
+    save_design(form_id, code, top_items, title_model, uc,
+                config_overrides=config_overrides)
     # 更新缓存（updateCount 会被后端自动递增）
     _cache_put(code, form_id, uc + 1)
     print(f'  {code}: 已更新 (ID={form_id})')
@@ -2492,7 +2910,8 @@ def _apply_half_layout(widgets):
     return top_items, all_models
 
 
-def create_form(name, code, widgets, title_index=0, layout='auto', expand=None):
+def create_form(name, code, widgets, title_index=0, layout='auto', expand=None,
+                config_overrides=None, app_menu_group_id=None):
     """一站式创建表单：查找/创建 → 保存设计 → 返回 (form_id, title_model)
 
     Args:
@@ -2507,6 +2926,9 @@ def create_form(name, code, widgets, title_index=0, layout='auto', expand=None):
             - 'word': Word 风格布局（带边框表格样式）
         expand: JS/CSS 增强配置 dict（可选），格式:
             {"js": "...", "css": "...", "url": {"js": "...", "css": "..."}}
+        config_overrides: dict，覆盖 config 中任意字段，例如:
+            {"customRequestURL": [{"url": "https://..."}], "transactional": False}
+        app_menu_group_id: lowApp 模式下的工作表分组ID（由 desform_lowapp_utils 传入）
 
     Returns:
         (form_id, title_model)
@@ -2533,11 +2955,12 @@ def create_form(name, code, widgets, title_index=0, layout='auto', expand=None):
     title_model = all_models[title_index][1] if title_index < len(all_models) else all_models[0][1]
 
     # 查找或创建
-    form_id, uc, actual_code = find_or_create_form(name, code)
+    form_id, uc, actual_code = find_or_create_form(name, code, app_menu_group_id=app_menu_group_id)
     print(f'  ID={form_id}, success=True')
 
     # 保存设计
-    save_design(form_id, actual_code, top_items, title_model, uc, form_style, expand=expand)
+    save_design(form_id, actual_code, top_items, title_model, uc, form_style, expand=expand,
+                config_overrides=config_overrides)
     # 更新缓存
     _cache_put(actual_code, form_id, uc + 1)
 
@@ -2659,6 +3082,668 @@ def create_view(parent_code, view_name, view_code, design_json=None, is_mobile=F
 
 
 # ============================================================
+# 列表视图（addView）
+# ============================================================
+
+def add_list_view_table(code, name=None):
+    """为表单创建表格列表视图
+
+    系统在创建表单时会自动生成默认表格视图；只有用户明确要求时才需调用本函数。
+
+    Args:
+        code: 表单编码
+        name: 视图名称（可选，不传由后台自动生成）
+
+    Returns:
+        新建视图 ID（字符串）
+    """
+    body = {"type": "base", "code": code}
+    if name is not None:
+        body["name"] = name
+    r = api_request('/desform/view/addView', data=body)
+    if r.get('success'):
+        view_id = r.get('result') or r.get('message')
+        print(f'  [add_list_view_table] 表格视图创建成功: {code} (viewId={view_id})')
+        return view_id
+    raise RuntimeError(f'表格视图创建失败: {r.get("message", "未知错误")}')
+
+
+def add_list_view_board(code, group_field=None, title_field=None, name=None):
+    """为表单创建看板列表视图（也称卡片视图）
+
+    数据按 group_field 的字段值分列展示。分组字段仅支持：
+      单选(radio)、下拉(select)、人员(select-user/create_by/update_by)、
+      表字典(table-dict)、关联记录单条(link-record)
+
+    Args:
+        code:         表单编码
+        group_field:  分组字段 model（不传默认使用 create_by）
+        title_field:  标题字段 model（不传则自动从表单 config.titleField 获取）
+        name:         视图名称（可选，不传由后台自动生成）
+
+    Returns:
+        新建视图 ID（字符串）
+    """
+    if group_field is None:
+        group_field = 'create_by'
+
+    if title_field is None:
+        title_field = _get_title_key(code)
+
+    body = {
+        "type": "card",
+        "code": code,
+        "groupField": group_field,
+        "filterGroupType": "all",
+        "titleField": title_field,
+    }
+    if name is not None:
+        body["name"] = name
+    r = api_request('/desform/view/addView', data=body)
+    if r.get('success'):
+        view_id = r.get('result') or r.get('message')
+        print(f'  [add_list_view_board] 看板视图创建成功: {code} (viewId={view_id}, groupField={group_field})')
+        return view_id
+    raise RuntimeError(f'看板视图创建失败: {r.get("message", "未知错误")}')
+
+
+def add_list_view_calendar(code, date_columns, title_field=None, name=None):
+    """为表单创建日历列表视图
+
+    Args:
+        code:          表单编码
+        date_columns:  日期列配置列表，每项为 dict：
+                         begin_field  (str, 必填) 开始日期字段 model
+                         end_field    (str, 可选) 结束日期字段 model；不填则仅显示单个日期点
+                         tag          (str, 必填) 分组标识，≤5 个字
+                         field_type   (str, 必填) 字段类型："date" 或 "datetime"
+                       示例（两组）：
+                         [
+                           {"begin_field": "date_xxx", "end_field": "date_yyy",
+                            "tag": "计划", "field_type": "date"},
+                           {"begin_field": "create_time", "tag": "创建", "field_type": "datetime"},
+                         ]
+        title_field:   标题字段 model（不传则自动从表单 config.titleField 获取）
+        name:          视图名称（可选，不传由后台自动生成）
+
+    Returns:
+        新建视图 ID（字符串）
+    """
+    if title_field is None:
+        title_field = _get_title_model(code)
+
+    calendar_column_list = []
+    for seq, col in enumerate(date_columns):
+        entry = {
+            "beginDateField": col['begin_field'],
+            "tag": col['tag'],
+            "seq": seq,
+            "type": col['field_type'],
+        }
+        if col.get('end_field'):
+            entry['endDateField'] = col['end_field']
+        calendar_column_list.append(entry)
+
+    body = {
+        "type": "calendar",
+        "code": code,
+        "titleField": title_field,
+        "calendarColumnList": calendar_column_list,
+    }
+    if name is not None:
+        body["name"] = name
+    r = api_request('/desform/view/addView', data=body)
+    if r.get('success'):
+        view_id = r.get('result') or r.get('message')
+        print(f'  [add_list_view_calendar] 日历视图创建成功: {code} (viewId={view_id}, {len(calendar_column_list)} 组日期)')
+        return view_id
+    raise RuntimeError(f'日历视图创建失败: {r.get("message", "未知错误")}')
+
+
+def add_list_view_gantt(code, start_field, end_field, field_type='date',
+                        default_view='day', title_field=None, name=None):
+    """为表单创建甘特图列表视图
+
+    Args:
+        code:          表单编码
+        start_field:   开始日期字段 model（必填，不可与 end_field 相同）
+        end_field:     结束日期字段 model（必填，不可与 start_field 相同）
+        field_type:    日期类型 "date" 或 "datetime"（默认 "date"）
+        default_view:  默认视图模式（默认 "day"）
+        title_field:   标题字段 model（不传则自动从表单 config.titleField 获取）
+        name:          视图名称（可选，不传由后台自动生成）
+
+    Returns:
+        新建视图 ID（字符串）
+    """
+    if start_field == end_field:
+        raise ValueError('start_field 和 end_field 不能相同')
+
+    if title_field is None:
+        title_field = _get_title_model(code)
+
+    body = {
+        "type": "gantt",
+        "code": code,
+        "titleField": title_field,
+        "ganttFields": {
+            "beginDateField": start_field,
+            "endDateField": end_field,
+            "dateType": field_type,
+            "defaultView": default_view,
+        },
+    }
+    if name is not None:
+        body["name"] = name
+    r = api_request('/desform/view/addView', data=body)
+    if r.get('success'):
+        view_id = r.get('result') or r.get('message')
+        print(f'  [add_list_view_gantt] 甘特图视图创建成功: {code} (viewId={view_id})')
+        return view_id
+    raise RuntimeError(f'甘特图视图创建失败: {r.get("message", "未知错误")}')
+
+
+def query_list_views(code):
+    """查询表单下所有列表视图的精简信息（id、name、type、seq）
+
+    Args:
+        code: 表单编码
+
+    Returns:
+        list of dict，每项包含 id、name、type、seq
+    """
+    r = api_request(f'/desform/view/queryByCodeLite?code={code}', method='GET')
+    if r.get('success'):
+        return r.get('result', [])
+    raise RuntimeError(f'查询列表视图失败: {r.get("message", "未知错误")}')
+
+
+def query_list_view_by_id(view_id):
+    """根据视图 ID 查询该视图的完整配置
+
+    Args:
+        view_id: 视图 ID
+
+    Returns:
+        dict，视图完整配置；视图不存在时抛出 RuntimeError
+    """
+    r = api_request(f'/desform/view/queryById?id={view_id}', method='GET')
+    if r.get('success'):
+        return r.get('result')
+    raise RuntimeError(f'查询视图失败: {r.get("message", "未知错误")}')
+
+
+def delete_list_view(view_id):
+    """删除列表视图
+
+    Args:
+        view_id: 要删除的视图 ID
+
+    Returns:
+        API 响应 dict
+    """
+    r = api_request(f'/desform/view/removeView?id={view_id}', method='GET')
+    if r.get('success'):
+        print(f'  [delete_list_view] 视图删除成功: viewId={view_id}')
+        return r
+    raise RuntimeError(f'列表视图删除失败: {r.get("message", "未知错误")}')
+
+
+def sort_list_view(view_id, after):
+    """将指定列表视图移动到某视图之后（简单排序）
+
+    Args:
+        view_id: 要移动的视图 ID
+        after:   排在哪个视图之后的视图 ID；传 "first" 则移到最前面
+
+    Returns:
+        API 响应 dict
+    """
+    r = api_request(f'/desform/view/sortView?id={view_id}&after={after}', method='POST')
+    if r.get('success'):
+        print(f'  [sort_list_view] 视图排序成功: viewId={view_id} after={after}')
+        return r
+    raise RuntimeError(f'列表视图排序失败: {r.get("message", "未知错误")}')
+
+
+def reset_list_view_order(view_ids):
+    """完全重排序：按传入顺序重置所有列表视图的 seq
+
+    需要先用 query_list_views(code) 获取所有视图 ID，
+    再按期望顺序传入本函数。
+
+    Args:
+        view_ids: 视图 ID 列表，顺序即为最终排列顺序（seq 从 1 开始自动分配）
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        views = query_list_views('<form_code>')
+        ids = [v['id'] for v in views]          # 当前顺序
+        ids.insert(0, ids.pop(2))               # 把第3个移到最前
+        reset_list_view_order(ids)
+    """
+    order_list = [{"id": vid, "seq": seq + 1} for seq, vid in enumerate(view_ids)]
+    body = {"list": order_list}
+    r = api_request('/desform/view/resetOrder', data=body)
+    if r.get('success'):
+        print(f'  [reset_list_view_order] 视图重排序成功: {len(view_ids)} 个视图')
+        return r
+    raise RuntimeError(f'列表视图重排序失败: {r.get("message", "未知错误")}')
+
+
+def config_table_base(view_id, line_height=None, auto_refresh=None, has_summary=None,
+                      auto_submit_bpm=None, show_column=None, fixed_column_num=None,
+                      column_list=None, show_column_list=None):
+    """配置表格视图的基础设置
+
+    Args:
+        view_id:          视图 ID
+        line_height:      行高，'small'（紧凑）| 'middle'（中等）| 'large'（高），默认 'middle'
+        auto_refresh:     自动刷新间隔秒数，0=关闭，最小 3；常用预设：30/60/120/180/240/300
+        has_summary:      bool，是否开启数据统计
+        auto_submit_bpm:  bool，新增数据后是否自动提交关联流程
+        show_column:      显示列模式，'default'（与表单字段一致）| 'diy'（自定义）
+        fixed_column_num: int，冻结前 N 列，0=不冻结
+        column_list:      自定义列配置，格式：[{"field": "字段key", "show": True/False, "seq": 0}, ...]
+                          定义字段顺序和基础可见性。
+                          不传时：show_column='diy' 模式下系统默认显示所有非大字段控件（无 50 个上限）；
+                          传入时：按列表精确控制每个字段的可见性和顺序。
+        show_column_list: 可见性覆盖列表，优先级高于 column_list 中的 show 值
+                          格式：[{"field": "字段key", "show": True/False}, ...]
+                          当 column_list 和 show_column_list 对同一字段的 show 冲突时，
+                          以 show_column_list 的值为准
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        # 只改行高
+        config_table_base(view_id, line_height='small')
+
+        # 切换为自定义列模式，同时指定字段顺序和可见性
+        config_table_base(
+            view_id,
+            show_column='diy',
+            column_list=[
+                {"field": "input_name", "show": True,  "seq": 0},
+                {"field": "select_status", "show": True,  "seq": 1},
+                {"field": "date_due",   "show": False, "seq": 2},
+            ]
+        )
+
+        # 通过 show_column_list 覆盖部分字段的可见性
+        config_table_base(
+            view_id,
+            show_column='diy',
+            column_list=[{"field": "input_name", "show": True, "seq": 0}],
+            show_column_list=[{"field": "input_name", "show": False}]  # 覆盖，最终不可见
+        )
+    """
+    if auto_refresh is not None and auto_refresh != 0 and auto_refresh < 3:
+        raise ValueError('auto_refresh 最小值为 3 秒，传 0 表示关闭')
+
+    params = {}
+    if line_height is not None:
+        params['lineHeight'] = line_height
+    if auto_refresh is not None:
+        params['autoRefresh'] = auto_refresh
+    if has_summary is not None:
+        params['hasSummary'] = has_summary
+    if auto_submit_bpm is not None:
+        params['autoSubmitBpm'] = auto_submit_bpm
+    if show_column is not None:
+        params['showColumn'] = show_column
+    if fixed_column_num is not None:
+        params['fixedColumnNum'] = fixed_column_num
+    if column_list is not None:
+        params['columnList'] = column_list
+    if show_column_list is not None:
+        params['showColumnList'] = show_column_list
+
+    return update_list_view(view_id, **params)
+
+
+# 系统字段固定顺序（与前端 systemFieldDataList 一致）
+_SYSTEM_FIELDS_SEQ = {
+    'create_time': 100,
+    'create_by':   101,
+    'update_time': 102,
+    'update_by':   103,
+    'bpm_status':  104,
+}
+
+
+def config_table_system_columns(view_id, show_fields):
+    """配置表格视图的系统字段显隐（仅适用于 show_column='default' 模式）
+
+    通过 systemColumnList 控制系统字段显隐，该字段仅在 show_column='default' 时生效。
+    若当前视图为 show_column='diy' 模式，本函数无效——此时需将系统字段直接写入
+    column_list，通过 config_table_base(view_id, column_list=[...]) 来控制显隐。
+
+    showColumnList 不参与系统字段的显示与隐藏控制，无论哪种模式均如此。
+
+    系统字段在 default 模式下的默认可见性：
+      bpm_status（流程状态）：默认显示
+      create_time / create_by / update_time / update_by：默认隐藏
+
+    Args:
+        view_id:      视图 ID
+        show_fields:  要显示的系统字段名列表，从以下 5 个中选：
+                        'create_time'（创建时间）
+                        'create_by'  （创建人）
+                        'update_time'（修改时间）
+                        'update_by'  （修改人）
+                        'bpm_status' （流程状态）
+                      未包含在列表中的字段将被设为隐藏。
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        # 只显示创建时间和创建人
+        config_table_system_columns(view_id, show_fields=['create_time', 'create_by'])
+
+        # 全部隐藏
+        config_table_system_columns(view_id, show_fields=[])
+
+        # 全部显示
+        config_table_system_columns(view_id, show_fields=list(_SYSTEM_FIELDS_SEQ.keys()))
+    """
+    show_set = set(show_fields)
+    invalid = show_set - set(_SYSTEM_FIELDS_SEQ.keys())
+    if invalid:
+        raise ValueError(f'不支持的系统字段：{invalid}，可选值：{list(_SYSTEM_FIELDS_SEQ.keys())}')
+
+    system_column_list = [
+        {"field": field, "show": field in show_set, "seq": seq}
+        for field, seq in _SYSTEM_FIELDS_SEQ.items()
+    ]
+    return update_list_view(view_id, systemColumnList=system_column_list)
+
+
+def config_table_sort(view_id, orders):
+    """配置表格视图的默认排序
+
+    Args:
+        view_id: 视图 ID
+        orders:  排序规则列表，格式：
+                   [{"field": "字段model名", "order": "asc"/"desc"}, ...]
+                 多条规则按列表顺序依次生效。
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        config_table_sort(view_id, orders=[
+            {"field": "date_due",   "order": "asc"},
+            {"field": "select_priority", "order": "desc"},
+        ])
+    """
+    return update_list_view(view_id, orders=orders)
+
+
+def config_table_quick_filter(view_id, query_list, query_button=True, wait_query=False):
+    """配置表格视图的快速筛选栏
+
+    Args:
+        view_id:      视图 ID
+        query_list:   筛选字段列表，格式：
+                        [{"field": "字段model名", "name": "显示名称",
+                          "type": "控件类型", "query_type": "查询方式", "seq": 0}, ...]
+        query_button: bool，是否显示查询按钮（默认 True）
+        wait_query:   bool，是否等待点击查询后才加载数据（默认 False）
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        config_table_quick_filter(view_id, query_list=[
+            {"field": "input_name", "name": "姓名", "type": "input", "query_type": "like", "seq": 0},
+            {"field": "select_status", "name": "状态", "type": "select", "query_type": "=", "seq": 1},
+        ])
+    """
+    return update_list_view(view_id, queryList=query_list,
+                            queryButton=query_button, waitQuery=wait_query)
+
+
+def config_table_left_filter(view_id, left_filter_field=None, left_filter_data='all',
+                              left_filter_order='desc', left_filter_condition=None,
+                              add_form_default_status=True):
+    """配置表格视图的筛选列表（左侧分组筛选栏）
+
+    Args:
+        view_id:                视图 ID
+        left_filter_field:      左侧筛选字段 model（字段 key）
+        left_filter_data:       筛选数据范围，'all'（全部）| 'part'（部分）| 'exist'（有数据），默认 'all'
+        left_filter_order:      筛选项排序方向，'asc' | 'desc'（默认 'desc'）
+        left_filter_condition:  附加过滤条件（字符串，可不传）
+        add_form_default_status: bool，新增表单时是否默认选中当前筛选项（默认 True）
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        config_table_left_filter(
+            view_id,
+            left_filter_field='select_status',
+            left_filter_data='exist',
+            left_filter_order='asc',
+        )
+    """
+    params = {
+        'leftFilterData': left_filter_data,
+        'leftFilterOrder': left_filter_order,
+        'addFormDefaultStatus': add_form_default_status,
+    }
+    if left_filter_field is not None:
+        params['leftFilterField'] = left_filter_field
+    if left_filter_condition is not None:
+        params['leftFilterCondition'] = left_filter_condition
+
+    return update_list_view(view_id, **params)
+
+
+def config_view_data_filter(view_id, conditions, match_type='and'):
+    """配置视图的数据过滤（sjgl）——限制此视图只显示满足条件的记录
+
+    支持所有视图类型（表格、看板、日历、甘特图）。
+
+    Args:
+        view_id:     视图 ID
+        conditions:  过滤条件，支持两种格式：
+
+          格式一：简单列表（所有条件放在同一个分组内）
+            [
+                {"field": "select_xxx", "rule": "eq",   "val": "初一", "type": "select", "name": "年级"},
+                {"field": "number_xxx", "rule": "gt",   "val": 10,     "type": "number", "name": "年龄"},
+            ]
+
+          格式二：分组列表（多个条件分组，每组内部有自己的 match_type）
+            [
+                {
+                    "match_type": "or",
+                    "items": [
+                        {"field": "input_xxx", "rule": "like", "val": "王", "type": "input", "name": "姓名"},
+                        {"field": "input_xxx", "rule": "like", "val": "张", "type": "input", "name": "姓名"},
+                    ]
+                },
+                {
+                    "match_type": "and",
+                    "items": [
+                        {"field": "number_xxx", "rule": "gt", "val": 3,  "type": "number", "name": "年龄"},
+                        {"field": "number_xxx", "rule": "lt", "val": 50, "type": "number", "name": "年龄"},
+                    ]
+                }
+            ]
+
+        match_type:  多个分组之间的关系，'and'（且）或 'or'（或），默认 'and'
+                     只有 conditions 为分组列表（格式二）且有多个分组时才生效
+
+    每个过滤条件项的字段说明：
+        field:  字段的 model（如 select_1775221412376_152628）或系统字段（如 create_time）
+        rule:   比较规则，按字段类型有所不同，见下方规则表
+        val:    比较值；rule 为 'empty'/'not_empty' 时传 '' 或 None
+        type:   字段控件类型（如 input、select、number、date 等）
+        name:   字段中文名（可选，用于界面展示）
+
+    规则（rule）速查表：
+        文本类（input/textarea/auto-number 等默认）:
+            like（包含）、eq（等于）、right_like（以..开始）、left_like（以..结尾）、
+            in（在...中）、ne（不等于）、like_with_and（多词匹配）、empty、not_empty
+
+        数值/时间类（number/integer/money/rate/slider/formula/summary/
+                     date/datetime/datetime_s/datetime_sf/time/year/month/x_oa_timeout_date）:
+            eq、ne、gt（大于）、ge（大于等于）、lt（小于）、le（小于等于）、
+            range（在范围内，val 传列表 [min, max]）、empty、not_empty
+
+        单选/省市区（radio/area-linkage）:
+            eq、ne、in、not_in、empty、not_empty
+
+        多选/下拉（checkbox/select）:
+            eq、ne、in、not_in、empty、not_empty
+
+        人员/部门/下拉树/表字典/角色（select-user/select-depart/table-dict/select-tree/org-role）:
+            eq、ne、in（是其中一个）、not_in（不是其中一个）、empty、not_empty
+
+        开关（switch）:
+            eq、ne、empty、not_empty
+
+        关联记录（link-record）:
+            eq、ne、in、not_in、empty、not_empty、linkage（查询工作表）
+
+        子表/地图/图片/文件/手写签名等:
+            empty、not_empty
+
+        系统字段:
+            create_time/update_time → 同数值/时间类规则
+            create_by/update_by    → 同人员类规则（in/not_in 等）
+            bpm_status             → 同多选/下拉规则
+
+    清除数据过滤：
+        config_view_data_filter(view_id, [])
+
+    Returns:
+        API 响应 dict
+
+    示例：
+        # 只显示年级为"初一"的学生
+        config_view_data_filter(view_id, [
+            {"field": "select_1775221412376_152628", "rule": "eq", "val": "初一",
+             "type": "select", "name": "年级"}
+        ])
+
+        # 多分组：（姓王 或 姓张）且 年龄在 10~18 之间
+        config_view_data_filter(view_id, [
+            {
+                "match_type": "or",
+                "items": [
+                    {"field": "input_xxx", "rule": "like", "val": "王", "type": "input", "name": "姓名"},
+                    {"field": "input_xxx", "rule": "like", "val": "张", "type": "input", "name": "姓名"},
+                ]
+            },
+            {
+                "match_type": "and",
+                "items": [
+                    {"field": "number_xxx", "rule": "gt", "val": 10, "type": "number", "name": "年龄"},
+                    {"field": "number_xxx", "rule": "lt", "val": 18, "type": "number", "name": "年龄"},
+                ]
+            }
+        ], match_type='and')
+    """
+    if not conditions:
+        # 清除数据过滤
+        body = {
+            "id": view_id,
+            "matchType": "and",
+            "conditionType": "and",
+            "conditions": []
+        }
+        r = api_request('/desform/view/updateViewConfig', data=body, method='PUT')
+        if r.get('success'):
+            print(f'  [config_view_data_filter] 数据过滤已清除: viewId={view_id}')
+            return r
+        raise RuntimeError(f'数据过滤清除失败: {r.get("message", "未知错误")}')
+
+    # 判断是简单列表还是分组列表
+    is_group_format = isinstance(conditions[0], dict) and 'items' in conditions[0]
+
+    if is_group_format:
+        # 格式二：分组列表
+        api_conditions = []
+        for group in conditions:
+            group_match = group.get('match_type', 'and')
+            items = group.get('items', [])
+            api_conditions.append({
+                'matchType': group_match,
+                'queryItems': [_normalize_filter_item(item) for item in items]
+            })
+    else:
+        # 格式一：简单列表，自动包装为单个分组
+        api_conditions = [{
+            'matchType': match_type,
+            'queryItems': [_normalize_filter_item(item) for item in conditions]
+        }]
+
+    body = {
+        "id": view_id,
+        "matchType": match_type,
+        "conditions": api_conditions
+    }
+
+    r = api_request('/desform/view/updateViewConfig', data=body, method='PUT')
+    if r.get('success'):
+        total = sum(len(g['queryItems']) for g in api_conditions)
+        print(f'  [config_view_data_filter] 数据过滤配置成功: viewId={view_id}, '
+              f'{len(api_conditions)} 个分组, 共 {total} 个条件')
+        return r
+    raise RuntimeError(f'数据过滤配置失败: {r.get("message", "未知错误")}')
+
+
+def _normalize_filter_item(item):
+    """将用户传入的过滤条件项规范化为 API 所需格式"""
+    rule = item.get('rule', 'eq')
+    val = item.get('val', '')
+    if val is None:
+        val = ''
+    return {
+        'field': item['field'],
+        'rule': rule,
+        'val': val,
+        'type': item.get('type', 'input'),
+        'name': item.get('name', ''),
+    }
+
+
+def update_list_view(view_id, **fields):
+    """更新列表视图配置
+
+    通用更新接口，可修改视图的任意字段（名称、分组字段、日期字段等）。
+
+    Args:
+        view_id: 视图 ID（由 add_list_view_* 返回，或通过查询获得）
+        **fields: 要更新的字段，例如：
+                    name="新名称"
+                    groupField="select_xxx"
+                    titleField="input_xxx"
+
+    Returns:
+        API 响应 dict
+
+    示例:
+        update_list_view('2039961002911772674', name='项目看板')
+        update_list_view('2039961002911772674', name='计划视图', groupField='select_xxx')
+    """
+    body = {"id": view_id, **fields}
+    r = api_request('/desform/view/updateViewConfig', data=body, method='PUT')
+    if r.get('success'):
+        print(f'  [update_list_view] 视图更新成功: viewId={view_id}')
+        return r
+    raise RuntimeError(f'列表视图更新失败: {r.get("message", "未知错误")}')
+
+
+# ============================================================
 # 字典创建
 # ============================================================
 def create_dict(dict_code, dict_name, items, description=''):
@@ -2739,6 +3824,12 @@ def add_widget(code, widget_or_widgets):
     widgets = widget_or_widgets if isinstance(widget_or_widgets, list) else [widget_or_widgets]
     last_r = None
     for i, w in enumerate(widgets):
+        # 校验：必须是由 DATE()/INPUT() 等函数生成的完整控件结构，裸配置 dict 会被后端静默写入
+        if 'key' not in w or 'model' not in w:
+            raise ValueError(
+                f'[add_widget] 第 {i+1} 个控件缺少 key/model，必须使用 DATE()/INPUT() 等函数生成完整控件结构，'
+                '不能直接传裸配置 dict。如需按位置插入，请使用 export_design_json → 手动插入 → save_design_from_file。'
+            )
         # 后端 @RequestBody JSONObject 期望单个对象，逐个发送
         r = api_request(f'/desform/api/{code}/addWidget', data=w, method='PUT')
         last_r = r
@@ -2749,34 +3840,54 @@ def add_widget(code, widget_or_widgets):
     return last_r
 
 
-def update_widget(code, key_or_model, changes_dict):
+def update_widget(code, changes_dict, *, key=None, model=None):
     """修改指定控件的属性
 
     Args:
         code: 表单编码
-        key_or_model: 控件的 key 或 model
         changes_dict: 要修改的属性字典，如 {"name": "新名称", "options": {"required": True}}
+        key: 控件的 key（优先使用，精准定位，从 get_form_fields 返回值取）
+        model: 控件的 model（key 不可用时使用）
+
+    注意：key 和 model 必须显式指定其一，优先传 key（更精准，用 model 定位有时会报"组件不存在"）
     """
-    body = {"key": key_or_model, "action": "update", "widget": changes_dict}
+    if not key and not model:
+        raise ValueError("[update_widget] key 和 model 不能都为空，请显式指定其一")
+    body = {"action": "update", "widget": changes_dict}
+    if key:
+        body["key"] = key
+    else:
+        body["model"] = model
+    identifier = key or model
     r = api_request(f'/desform/api/{code}/updateWidget', data=body, method='PUT')
     if r.get('success'):
-        print(f"[update_widget] 成功更新控件 {key_or_model}")
+        print(f"[update_widget] 成功更新控件 {identifier}")
     else:
         print(f"[update_widget] 更新失败: {r.get('message', '')}")
     return r
 
 
-def delete_widget(code, key_or_model):
+def delete_widget(code, *, key=None, model=None):
     """删除指定控件
 
     Args:
         code: 表单编码
-        key_or_model: 控件的 key 或 model
+        key: 控件的 key（优先使用，精准定位）
+        model: 控件的 model（key 不可用时使用）
+
+    注意：key 和 model 必须显式指定其一，优先传 key
     """
-    body = {"key": key_or_model, "action": "delete"}
+    if not key and not model:
+        raise ValueError("[delete_widget] key 和 model 不能都为空，请显式指定其一")
+    body = {"action": "delete"}
+    if key:
+        body["key"] = key
+    else:
+        body["model"] = model
+    identifier = key or model
     r = api_request(f'/desform/api/{code}/updateWidget', data=body, method='PUT')
     if r.get('success'):
-        print(f"[delete_widget] 成功删除控件 {key_or_model}")
+        print(f"[delete_widget] 成功删除控件 {identifier}")
     else:
         print(f"[delete_widget] 删除失败: {r.get('message', '')}")
     return r

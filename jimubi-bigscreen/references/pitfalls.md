@@ -1,5 +1,24 @@
 # API 踩坑记录（大屏常见问题速查）
 
+## 饼图类严禁 xAxis/yAxis（实测 2026-04-22）
+
+JPie / JRing / JRotatePie / JRose / JActiveRing 的 `option` 中**严禁包含 `xAxis` 或 `yAxis` 字段**。
+前端检测到这两个字段会按笛卡尔坐标系处理，跳过饼图渲染，组件完全空白。
+
+**错误根源**：将 `ax()` 辅助函数（用于给折线/柱形图加轴样式）误用于饼图 opt_ov。
+
+**正确做法**：饼图只用 `{'title':..., 'legend':..., 'tooltip':..., 'customColor':...}`，不调用 `ax()`：
+```python
+# 正确
+add('JPie', ..., opt_ov={'title':{'show':False},'legend':{'textStyle':{'color':BL}},
+    'tooltip':{'backgroundColor':TBG,'textStyle':{'color':TTC}}, 'customColor':[...]})
+
+# 错误（ax() 会带入 xAxis/yAxis）
+add('JPie', ..., opt_ov=dm(ax(), {...}))
+```
+
+---
+
 ## 组件类型匹配踩坑
 
 | 用户描述 | 错误匹配 | 正确组件 | 说明 |
@@ -181,7 +200,7 @@ bi_utils._request('POST', '/drag/onlDragDatasetHead/add', data=payload)
 | **⚠️ comp_ops.py 参数顺序：子命令在前，API_BASE/TOKEN/PAGE_ID 随后** | 正确：`py comp_ops.py add API_BASE TOKEN PAGE_ID --comp JPie ...`；错误：`py comp_ops.py API_BASE TOKEN PAGE_ID add --comp JPie ...`。颠倒顺序时 argparse 把 API_BASE URL 当作 subcommand 解析，报 `argument command: invalid choice: 'http://...'`（2026-04-09 实测） |
 | **⚠️ `files_ops.py add-chart` 必须同时传 `--ds-name`，否则数据集绑定 label 为空（2026-04-10 实测）** | `add-chart` 子命令的 `--ds-name` 默认为空字符串，不传时组件 `config.dataSetName=''`，设计器数据集绑定 label 无回显。**正确用法**：先 `queryById` 获取数据集名称，再加 `--ds-name "数据集名称"` 参数。若已添加缺名称的组件，修复方式：`queryById`（数据集）取 `name` → `query_page` 找组件 → `cfg['dataSetName']=name` → `page/edit` 保存 |
 | **⚠️ `files_ops.py add-chart` 的映射参数是 `--fields`，不是 `--col-name/--col-type/--col-sales`（2026-04-10 实测）** | `add-chart` 子命令通过 `--fields "field1:文本:类型,field2:文本:类型,..."` 构建 dataMapping/fieldOption（格式：字段名:显示文本:类型，逗号分隔）。`--col-name/--col-type/--col-sales` 是 `create-bind` 专用参数，`add-chart` 完全忽略这三个参数，导致 dataMapping/fieldOption 均为空，图表字段映射空白、数据集绑不上。**正确用法**：`py files_ops.py add-chart API TOKEN PAGE --ds-id DS_ID --comp JStackBar --title "标题" --x 50 --y 100 --w 900 --h 450 --fields "region:大区:String,category:品类:String,sales:销售额:Integer"`（三字段时自动按 分组→第1字段, 维度→第2字段, 数值→第3字段 的顺序映射，需按 分组/维度/数值 的语义顺序排列 `--fields`）。若已添加映射为空的组件，需手动写修复脚本：`query_page` → 找 JStackBar → 修改 `cfg['dataMapping']/cfg['fieldOption']` → `page/edit` 保存 |
-| **⚠️ 自定义脚本内 subprocess 调用其他脚本禁止使用 `/c/Users/...` Unix 路径** | Python subprocess 在 Windows 下不经过 Git Bash 路径转换，`/c/Users/25067/.../comp_ops.py` 被直接拼成 `C:\c\Users\25067\...`，报 `can't open file ... No such file or directory`。正确做法：提前 `cp` 目标脚本到当前工作目录，subprocess 直接用脚本文件名调用，无需绝对路径（2026-04-09 实测） |
+| **⚠️ 自定义脚本内 subprocess 调用其他脚本禁止使用 `/c/Users/...` Unix 路径** | Python subprocess 在 Windows 下不经过 Git Bash 路径转换，`/c/Users/<用户名>/.../comp_ops.py` 被直接拼成 `C:\c\Users\<用户名>\...`，报 `can't open file ... No such file or directory`。正确做法：提前 `cp` 目标脚本到当前工作目录，subprocess 直接用脚本文件名调用，无需绝对路径（2026-04-09 实测） |
 
 ## 组件相关
 
@@ -294,7 +313,7 @@ line_cfg['option'] = merge_common_option(old_opt, new_opt)
 | **datasource_ops.py 创建+测试不能链式执行** | test 不支持按名称查找，创建后需用连接参数重复传递来测试 |
 | **⚠️ `response.get('result', {})` 返回 None 陷阱** | Python 的 `.get(key, default)` 只在 key **不存在**时才返回 default；当 JSON 响应中 `"result": null` 时，`.get('result', {})` 返回 `None` 而非 `{}`，导致后续 `.get(...)` 报 `AttributeError: 'NoneType' has no attribute 'get'`。**正确写法**：`result = response.get('result') or {}`（None 和不存在均安全）。注意：`add_r.get('result', {}).get('groupCode', '')` 是典型错误模式 |
 | **⚠️ `.get('data', [])` 默认值对 null 值无效（TypeError: NoneType has no len）** | `.get(key, default)` 的 default 只在 key **不存在**时生效；当响应为 `{"result": {"data": null}}` 时，`result` 是一个 dict（非 None），`or {}` 不触发，`.get('data', [])` 返回 `None`（key 存在但值为 null），后续 `len(rows)` 报 `TypeError: object of type 'NoneType' has no len()`。**这是比 result=null 更隐蔽的陷阱**。正确写法：在链末加 `or []`：`rows = ((resp.get('result') or {}).get('data') or [])`。适用于所有可能返回 `{"data": null}` 的嵌套响应字段，如 `getAllChartData`、`queryById` 等 |
-| **⚠️ cp 依赖文件必须用绝对目标路径，严禁 `.`（强制）** | `cp ... bi_utils.py .` 中 `.` 依赖 shell 启动目录，Git Bash 下不可靠，文件会复制到意外位置，导致 `py script.py` 报 `ModuleNotFoundError: No module named 'bi_utils'`，引发 3 轮额外调用。**强制规范（违反此规则是严重错误）**：目标路径必须写绝对路径：`cp "...bi_utils.py" "C:/Users/25067/" && cp "...default_configs.json" "C:/Users/25067/" && ls "C:/Users/25067/bi_utils.py" "C:/Users/25067/default_configs.json"`，脚本也必须写到同一目录：`Write file_path=C:/Users/25067/script.py`，执行时：`cd "C:/Users/25067" && py script.py` |
+| **⚠️ cp 依赖文件必须用绝对目标路径，严禁 `.`（强制）** | `cp ... bi_utils.py .` 中 `.` 依赖 shell 启动目录，Git Bash 下不可靠，文件会复制到意外位置，导致 `py script.py` 报 `ModuleNotFoundError: No module named 'bi_utils'`，引发 3 轮额外调用。**强制规范（违反此规则是严重错误）**：目标路径必须写绝对路径：`cp "...bi_utils.py" "C:/Users/<用户名>/" && cp "...default_configs.json" "C:/Users/<用户名>/" && ls "C:/Users/<用户名>/bi_utils.py" "C:/Users/<用户名>/default_configs.json"`，脚本也必须写到同一目录：`Write file_path=C:/Users/<用户名>/script.py`，执行时：`cd "C:/Users/<用户名>" && py script.py` |
 | **⚠️ 并行 Bash+Write 时 Bash 失败会取消 Write** | 同一轮中 Bash 和 Write 并行执行，若 Bash 报错，Write 工具调用也会被取消（`Cancelled: parallel tool call...errored`）。需要将 cp（依赖） 和 Write（脚本文件）分开两轮，或在 cp 成功后再 Write |
 | **⚠️ information_schema 被 SQL 注入保护拦截** | 大屏系统对数据集 SQL 做注入检测，`information_schema`/`SHOW TABLES` 等 DDL/元数据查询会触发 `操作失败，请注意，值可能存在SQL注入风险`。**无法通过 BI 系统的数据集接口查表结构**，只能用 trial-and-error：对已知候选表名逐一执行 `SELECT COUNT(*) FROM table LIMIT 1` 判断表是否存在 |
 | **⚠️ JeecgBoot 大屏常见表名候选列表** | 当 SQL 报 `bad SQL grammar` 时，按以下优先级试：① `jmreport_big_screen`（大屏页面，JimuReport 历史版本）② `onl_drag_page`（drag 模块新版本）③ `drag_page`（不存在）。`jmreport_big_screen` 字段：`screen_name, create_time, type, status, tenant_id` 等 |
@@ -319,7 +338,7 @@ line_cfg['option'] = merge_common_option(old_opt, new_opt)
 | **Git Bash `!` 转义** | SQL 中 `!=` 变成 `\!=`。必须用 Python 脚本传递 SQL |
 | **⚠️ Git Bash shell 变量传递给 py 脚本为空** | `API_BASE="http://..." && py script.py "$API_BASE"` 变量可能为空（尤其含特殊字符的长 JWT token）。**必须直接内联字面值**：`py script.py "http://..." "eyJ..."` |
 | **⚠️ comp_ops.py list 中文乱码** | Git Bash 终端默认编码非 UTF-8，`comp_ops.py list` 输出的中文组件名全部乱码。**解决方案：不要单独调 list 查看名称，直接在自定义 Python 脚本中用 `query_page()` + `json.dumps(ensure_ascii=False)` 输出，或用 `py -X utf8` 执行** |
-| **⚠️ Git Bash 下 cp 目标路径必须用 `/c/Users/` 格式（2026-04-09 实测）** | `cp "C:/Users/25067/.../bi_utils.py" "C:/Users/25067/"` 在 Git Bash 中**静默成功但文件实际不存在**——`cp` 无报错、`ls` 命令也看似通过，但随后 `py script.py` 报 `No such file or directory` 或 `ModuleNotFoundError`。**必须用 Unix 格式路径**：`cp "/c/Users/25067/.../bi_utils.py" "/c/Users/25067/bi_utils.py"`。同理：`ls /c/Users/25067/bi_utils.py` 验证（不是 `ls C:/Users/25067/bi_utils.py`）。这一个错误会导致额外 2-3 轮修复调用。 |
+| **⚠️ Git Bash 下 cp 目标路径必须用 `/c/Users/` 格式（2026-04-09 实测）** | `cp "C:/Users/<用户名>/.../bi_utils.py" "C:/Users/<用户名>/"` 在 Git Bash 中**静默成功但文件实际不存在**——`cp` 无报错、`ls` 命令也看似通过，但随后 `py script.py` 报 `No such file or directory` 或 `ModuleNotFoundError`。**必须用 Unix 格式路径**：`cp "/c/Users/<用户名>/.../bi_utils.py" "/c/Users/<用户名>/bi_utils.py"`。同理：`ls /c/Users/<用户名>/bi_utils.py` 验证（不是 `ls C:/Users/<用户名>/bi_utils.py`）。这一个错误会导致额外 2-3 轮修复调用。 |
 | **签名验证失败：时间戳为空** | 需要 `X-TIMESTAMP` + `X-Sign` + `V-Sign`，见 `signing-datasource-guide.md` |
 | **HTTPS 连接问题** | api3.boot.jeecg.com 使用 HTTP 协议 |
 | **后端项目目录不存在** | bi_utils.py 复制到当前工作目录 |
@@ -338,8 +357,8 @@ line_cfg['option'] = merge_common_option(old_opt, new_opt)
 2. **接口展示什么数据？**（业务含义，如"访客流量"、"每月销售额"）
 3. **需要几个接口？**（单系列 / 多系列 / 双轴 → 影响字段设计和 dataMapping）
 
-**已知 Controller 路径（可直接使用，无需询问）：**
-- Mock 接口：`D:\jeecgboot2025\jeecg-boot-framework\jeecg-boot-platform\jeecg-boot-module-drag\src\main\java\org\jeecg\modules\drag\controller\OnlDragMockController.java`
+**已知可复用接口（可直接使用，无需询问）：**
+  - Mock 接口：`<后端项目路径>\jeecg-boot-platform\jeecg-boot-module-drag\src\main\java\org\jeecg\modules\drag\controller\OnlDragMockController.java`
   - 已有接口：`/drag/mock/visitorFlow`（单系列）、`/drag/mock/visitorFlowMulti`（多系列）、`/drag/mock/salesFlowDouble`（双轴）等
 
 ### Step 2：编写 Java 接口
@@ -864,7 +883,7 @@ if fields:
 
 ## Online 表单图表全组件批量生成踩坑（2026-04-03）
 
-> 源码参考：`D:\webstorm_project_2023\vue3-jeecg-drag-design-antd4\packages\utils\constant.ts`（chartConfig 函数）
+> 源码参考：`packages\utils\constant.ts`（chartConfig 函数）
 > 源码参考：`packages\dragEngine\modal\chartset\hooks\useChartBiz.ts`（onlyValueChart 逻辑）
 > 源码参考：`packages\dragEngine\modal\chartset\components\FieldConfig.vue`（字段槽位显示条件）
 
@@ -1030,8 +1049,7 @@ def get_fields(comp_type, NAME_FIELD, VALUE_FIELD):
 历史应急方案（升级后不再需要，留档备查）：删除组件时用自定义脚本，一次 `queryById` 取到最新 `updateCount`，直接调 `edit` 保存：
 
 ```python
-import sys, json
-sys.path.insert(0, 'C:/Users/25067')
+import json
 import bi_utils
 
 bi_utils.API_BASE = 'http://...'
@@ -1075,7 +1093,7 @@ bi_utils._request('POST', '/drag/page/edit', data=payload)
 | **⚠️ bash heredoc `<< 'EOF'` 在 Python 内容含单引号时必定失败** | 单引号定界的 heredoc 中不能有 `'`（单引号），而 Python 代码大量使用单引号字符串，导致 heredoc 被截断报 `unexpected EOF` | **必须用 `Write` 工具写脚本文件**，彻底避免 bash heredoc。流程：`Read` 目标文件（不存在也要 Read，拿到"不存在"错误即可）→ `Write` 写入完整内容。全程不经过 bash，无转义问题 |
 | **⚠️ `Write` 工具写新文件前必须先 `Read`** | Claude 工具系统要求"对任何文件写入前需先读取"，包括不存在的文件。直接调 `Write` 报 `File has not been read yet` | 先 `Read` 目标路径（即使文件不存在或为空），再 `Write` 覆盖写入 |
 | **⚠️ 通过 `py -c` / bash 生成的 Python 文件中，`b"\r\n"` 被写为实际 CR+LF 字节** | bash 中外层 Python 字符串的 `\\r\\n` 被解析为 `\r`（0x0D）+`\n`（0x0A）实际字节，写入目标文件后 Python 解释器遇到第一个 `\r` 就认为行结束，报 `SyntaxError: unterminated string literal` | 在 Python 脚本中**永远不要写 `b"\r\n"`**，改用 `bytes([13, 10])`。例如 multipart 编码器的分隔符：`CRLF = bytes([13, 10]); return CRLF.join(parts)` |
-| **⚠️ `py -` stdin 方式导致 `import bi_utils` 失败** | `py -` 从 stdin 读取时，`sys.path.insert(0, '.')` 的 `.` 指向进程启动目录而非当前 shell pwd | 改用 `sys.path.insert(0, 'C:/Users/25067')` 绝对路径，或先 Write 脚本文件再 `py script.py` |
+| **⚠️ `py -` stdin 方式导致 `import bi_utils` 失败** | `py -` 从 stdin 读取时，Python 不会自动将 shell cwd 加入 `sys.path` | 先 Write 脚本文件再 `py script.py`；`py script.py` 模式下 Python 自动处理路径，无需 `sys.path.insert` |
 
 **最优写脚本流程（无任何 bash 转义问题）：**
 

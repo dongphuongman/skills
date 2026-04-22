@@ -13,6 +13,7 @@
 9. `DELETE /desform/recycleBin/empty` 清空回收站（在演示环境中可能不完全生效）
 10. **删除后重建时序问题：** 彻底删除表单后，code 释放可能有延迟。如果 `add` 返回 `该code已存在`，说明该 code 之前被另一个表单占用（同 code 可能存在多条记录）。此时应通过 list 全量搜索找到占用该 code 的表单，对其执行 `deleteBatch` + `recycleBin/deleteByIds` 彻底删除后再重建
 11. **`save_design` 报「未找到对应实体」：** 通常是因为使用了已被删除的旧表单 ID。`find_or_create_form` 可能返回旧 ID（缓存或竞态），此时需通过 list API 重新搜索获取最新有效 ID
+12. **`echo` 管道传 JSON 时禁止手动转义中文**：bash 的 `echo` 原生支持 UTF-8，直接写原始汉字即可。手动将汉字转为 `\uXXXX` 转义极易笔误（如 `\u7efc` 综 vs `\u7efb` 绻），导致表单名称/字段名乱码。
 
 ## `create_form` vs `save_design` 使用区别
 

@@ -135,32 +135,39 @@ background = {
 
 ```python
 "hidden": {
-    "rows": [],          # 静态/条件隐藏的行范围列表（0-based，起:止，闭区间）
-    "cols": [],          # 静态/条件隐藏的列范围列表
+    "rows": [],          # 静态隐藏行列表（始终隐藏，与条件隐藏完全独立）
+    "cols": [],          # 静态隐藏列列表（始终隐藏）
     "conditions": {
-        "rows": {},      # 条件隐藏行：{range_key: aviator表达式}
-        "cols": {},      # 条件隐藏列：{range_key: aviator表达式}
+        "rows": {},      # 条件隐藏行：{range_key: aviator表达式}，满足条件才隐藏
+        "cols": {},      # 条件隐藏列：{range_key: aviator表达式}，满足条件才隐藏
     }
 }
 ```
 
-范围 key 格式：`"起:止"`（0-based，两端闭区间）
-- `"4:4"` — 第5行（单行）
-- `"1:3"` — 第2~4行（多行）
-- `"0:0"` — 第1列（A列）
+> **重要**：`rows`/`cols` 列表（静态隐藏）与 `conditions.rows`/`conditions.cols`（条件隐藏）是**完全独立的两套机制**。
+> - 静态隐藏：放入 `rows` 列表 → 始终隐藏
+> - 条件隐藏：放入 `conditions.rows` → 满足 aviator 表达式时隐藏
+> - 两者不需要同时设置，混用会导致条件行变成始终隐藏
+
+范围 key 格式：`"起:止"`（**直接对应 rows/cols dict 的 key 数字**，两端闭区间）
+- `"3:3"` — rows key 为 "3" 的行（单行）
+- `"1:3"` — rows key "1"~"3" 的行（多行）
+- `"1:1"` — cols key 为 "1" 的列（B列）
+
+> **关键**：index 不是"第几行的位置"，而是 rows dict 的 key 数字。rows 从 key "0" 开始时，第1行 index=0；rows 从 key "1" 开始时，第1行 index=1。必须与报表 rows 的实际 key 对应。
 
 ---
 
 ## 2. 静态隐藏（始终隐藏）
 
-只在 `hidden.rows` / `hidden.cols` 中登记，不加 `conditions`。
+只在 `hidden.rows` / `hidden.cols` 列表中登记，不加 `conditions`。
 
 ```python
-# 隐藏第5行（index=4）
-hidden["rows"].append("4:4")
-
-# 隐藏B列（index=1）
-hidden["cols"].append("1:1")
+hidden = {
+    "rows": ["4:4"],   # 始终隐藏第5行（index=4）
+    "cols": ["1:1"],   # 始终隐藏B列（index=1）
+    "conditions": {"rows": {}, "cols": {}}
+}
 ```
 
 取消静态隐藏：从列表中移除对应 key。
@@ -173,24 +180,27 @@ hidden["rows"] = [r for r in hidden["rows"] if r != "4:4"]
 
 ## 3. 条件隐藏（aviator 表达式）
 
-条件行/列**必须同时登记到 `hidden.rows`/`hidden.cols` 中**，仅在 `conditions` 里加不生效。
+只在 `conditions.rows` / `conditions.cols` 中登记，**不要同时加到 `rows`/`cols` 列表**（加了就变成始终隐藏）。
 
 ```python
-# 当姓名==张三时隐藏第2行
-if "1:1" not in hidden["rows"]:
-    hidden["rows"].append("1:1")
-hidden["conditions"]["rows"]["1:1"] = "person.xingming=='张三'"
-
-# 当姓名==张三时隐藏B列（年龄列）
-if "1:1" not in hidden["cols"]:
-    hidden["cols"].append("1:1")
-hidden["conditions"]["cols"]["1:1"] = "person.xingming=='张三'"
+hidden = {
+    "rows": [],    # 静态隐藏留空
+    "cols": [],
+    "conditions": {
+        "rows": {
+            "1:1": "person.xingming=='张三'",   # 当姓名==张三时隐藏第2行（index=1）
+            "2:2": "person.xingming=='张三'",   # 当姓名==张三时隐藏第3行（index=2）
+        },
+        "cols": {
+            "3:3": "person.age<18",   # 当年龄<18时隐藏D列（index=3）
+        }
+    }
+}
 ```
 
-取消条件隐藏（同时从两处移除）：
+取消条件隐藏：只从 `conditions` 中移除即可，无需改 `rows` 列表。
 
 ```python
-hidden["rows"] = [r for r in hidden["rows"] if r != "1:1"]
 hidden["conditions"]["rows"].pop("1:1", None)
 ```
 

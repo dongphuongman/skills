@@ -210,50 +210,11 @@
 - 二维码单元格用 `merge: [2, 1]` 跨3行2列
 
 
-## 5.4 主子表循环块（嵌套子表）
+## 5.4 主子报表（套打式 & 循环块式）
 
-**核心规则：只有一个 loopBlockList，db = 主表；子表行嵌入主循环块模板内，引擎靠 /link/saveAndEdit 关联自动展开。**
-
-错误做法：两个 loopBlockList（一个主表一个子表）→ 无效。
-
-```python
-loopBlockList = [
-    {"sci": 0, "eci": 5, "sri": 0, "eri": 10, "index": 1, "db": MAIN}
-    # ↑ 只有这一条；eri 设为 模板实际内容末行 + 2~3 行缓冲即可
-    # 引擎会自动按子表数据量往下扩展，数据多不截断，数据少不留大空白
-    # 不要设成 35/36 这种很大的值，子表记录少时会产生大片空白
-]
-```
-
-**行结构（全部单元格 loopBlock:1）：**
-
-```
-行0-3:  主表信息（卡片标题 + 主表字段 #{MAIN.field}）
-行4:    子表区域标题
-行5:    子表列表头（静态文字）
-行6:    子表数据行 #{SUB.field}  ← 引擎按子表记录数重复此行
-行7-9:  少量空白缓冲行（2~3 行即可，不要几十行）
-eri=9   ← 与实际最后一行对齐
-```
-
-子表数据行使用子表数据集别名（`#{SUB.field}`），其余行使用主表别名（`#{MAIN.field}`），混写在同一循环块模板内完全正确。
-
-**数据集配置：**
-- 主表：`isList="1"`, `isPage="0"`，SQL 无参数
-- 子表：`isList="1"`, `isPage="0"`，SQL 含 `WHERE main_id='${param}'`，param searchFlag=0
-- `/link/saveAndEdit`（POST）参数格式如下，**注意 parameter 是 JSON 字符串，用 mainReport/subReport 传 dbCode 别名，不是 ID**：
-  ```python
-  import json
-  session.request("/link/saveAndEdit", {
-      "reportId":   report_id,
-      "parameter":  json.dumps({"main": MAIN, "sub": SUB,
-                      "subReport": [{"mainField": "id", "subParam": "param_name", "tableIndex": 1}]}),
-      "linkName":   "主子表关联",
-      "linkType":   "4",
-      "mainReport": MAIN,   # 主表 dbCode
-      "subReport":  SUB,    # 子表 dbCode
-  })
-  ```
+> 已拆分到独立文件，详见 **mastersub-report.md**。
+> - 套打式（`${}` + 无循环块，URL 参数切换）→ mastersub-report.md 第一节
+> - 循环块式（`#{}` + loopBlockList，全量展开）→ mastersub-report.md 第二节
 
 ## 5.5 分版（并列独立展开表格）
 

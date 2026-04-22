@@ -3,6 +3,191 @@
 > 完整默认值可通过 `GET /jmreport/addChart?chartType=<type>` 获取原始配置。
 > 组件结构见 chart-components.md，常用属性速查见 chart-echarts-props.md。
 
+---
+
+## 中文图表名快查表（优先看这里）
+
+> 「系统名称」= 积木报表选图表时界面上显示的名字（来自截图实测）。
+
+| 系统名称 | 别称/用户说法 | chartType | series | 特殊说明 |
+|---------|------------|-----------|--------|---------|
+| **柱形图** | | | | |
+| 普通柱形图 | — | `bar.simple` | `""` | |
+| 带背景柱形图 | — | `bar.simple` | `""` | series 加 `showBackground:True`；extData.chartType 仍写 `bar.simple` |
+| 多数据对比柱形图 | 多系列柱状图 | `bar.multi` | `"type"` | |
+| 正负条形图 | — | `bar.negative` | `"type"` | yAxis=分类，xAxis=数值；负值用负数 |
+| 堆叠柱形图 | — | `bar.stack` | `"type"` | |
+| 堆叠条形图 | — | `bar.stack.horizontal` | `"type"` | |
+| 多数据条形柱状图 | 多系列横向对比 | `bar.multi.horizontal` | `"type"` | |
+| 横向柱形图 | 条形图 | `bar.horizontal` | `""` | label position="right" |
+| **折线图** | | | | |
+| 普通折线图 | 折线图 | `line.simple` | `""` | |
+| 平滑曲线折线图 | 平滑折线图 | `line.simple` | `""` | series 加 `smooth:True` |
+| 面积堆积折线图 | 面积图 | `line.simple` | `""` | series 加 `isArea:True` + `areaStyle.color` |
+| 阶梯折线图 | — | `line.simple` | `""` | series 加 `step:True` |
+| 多数据对比折线图 | 多系列折线图 | `line.multi` | `"type"` | xAxis 加 `boundaryGap:True` |
+| **饼图** | | | | |
+| 普通饼图 | 饼图 | `pie.simple` | `""` | |
+| 环状饼图 | 环形图 | `pie.doughnut` | `""` | radius=["45%","55%"] |
+| 南丁格尔玫瑰饼图 | 玫瑰图 | `pie.rose` | `""` | roseType="radius" |
+| **混合图** | | | | |
+| 普通折柱图 | 折柱混合图 | `mixed.linebar` | `"type"` | yAxis 是数组（双Y轴）；根级加 `"chartType":"linebar"` |
+| **仪表盘** | | | | |
+| 360°仪表盘 | 仪表盘 | `gauge.simple` | `""` | |
+| 180°仪表盘 | 半圆仪表盘 | `gauge.simple180` | `""` | startAngle:190, endAngle:-10 |
+| **散点图** | | | | |
+| 普通散点图 | 散点图 | `scatter.simple` | `""` | data 每项为 `[x,y]` |
+| 气泡散点图 | 气泡图 | `scatter.bubble` | `""` | 多系列 + 径向渐变 |
+| **漏斗图** | | | | |
+| 普通漏斗图 | 漏斗图 | `funnel.simple` | `""` | sort="descending" |
+| 金字塔漏斗图 | 金字塔图 | `funnel.pyramid` | `""` | sort="ascending" |
+| **雷达图** | | | | |
+| 普通雷达图 | 雷达图 | `radar.basic` | `""` | shape="polygon"；legend.data 必须预填 |
+| 圆形雷达图 | — | `radar.custom` | `""` | shape="circle"；splitArea 渐变填充 |
+| **象形图** | | | | |
+| 普通象形图 | 象形柱图 | `pictorial.spirits` | `""` | type="pictorialBar"；横向布局 |
+| **地图** | | | | |
+| 区域地图 | — | `map.simple` | `""` | 根级加 `"chartType":"map"` |
+| 点地图 | — | `map.scatter` | `""` | extData 加 `isCustomPropName:True` |
+| **关系图** | | | | |
+| 普通关系图 | 关系图 | `graph.simple` | `""` | 不绑数据集，节点+边内嵌 config；extData 只需 chartId+chartType |
+
+**关键参数默认值：**
+- `api_status="0"`（JSON静态数据集）/ `api_status="1"`（SQL/API数据集）
+- `data_type="json"` / `data_type="sql"`
+- 单系列图表 `series=""` — 多系列图表 `series="type"`
+- **API 图表字段名非 `name`/`value` 时**：必须在 `chart_entry` 返回的对象上追加：
+  ```python
+  chart["extData"]["isCustomPropName"] = True
+  chart["extData"]["xText"] = "实际分类字段名"   # 如 "quarter"
+  chart["extData"]["yText"] = "实际值字段名"     # 如 "user_count"
+  # axisX/axisY 已通过 chart_entry 的 axis_x/axis_y 参数传入，保持一致即可
+  ```
+- 布局默认：`ROW_STEP=20`，`CHART_W="560"`，`CHART_H="380"`，列宽80px
+- 左列 col=1\~7，右列 col=8\~14（两列并排时）
+
+---
+
+## SQL/API 图表数据回填（必须执行）
+
+> **SQL/API 数据集图表创建后必须回填数据，否则设计器页面 ECharts 空白。**
+> JSON 数据集无此问题（数据已内嵌 config）。
+
+| 数据集类型 | 回填接口 | 返回路径 |
+|-----------|---------|---------|
+| SQL (`dataType="sql"`) | `/qurestSql` | `resp["result"]` → list |
+| API (`dataType="api"`) | `/qurestApi` | `resp["result"]["data"]` → list |
+
+### 流程
+
+```
+save_db → chart_entry → /save(第一次) → /qurestSql 或 /qurestApi → 回填config → /save(第二次)
+```
+
+### 代码片段（SQL/API 图表通用，每次创建后复用）
+
+```python
+from collections import OrderedDict
+
+def fetch_and_fill_chart(session, chart, report_id=None):
+    """
+    SQL 数据集调 /qurestSql，API 数据集调 /qurestApi，回填 chart['config']。
+    chart: chartList 中的单个图表对象（含 extData 和 config）
+    """
+    ext = chart["extData"]
+
+    # 1. 查询实际数据（SQL → /qurestSql；API → /qurestApi）
+    chart_setting = {
+        "chartId": ext["chartId"], "id": ext["chartId"],
+        "chartType": ext["chartType"], "dataType": ext["dataType"],
+        "apiStatus": ext["apiStatus"], "dataId": ext["dataId"],
+        "dataId1": "", "dbCode": ext["dbCode"],
+        "axisX": ext["axisX"], "axisY": ext["axisY"],
+        "series": ext["series"],
+        "xText": "", "yText": "", "linkIds": "",
+        "source": "", "target": "", "isTiming": "", "intervalTime": "",
+        "isCustomPropName": False, "run": 1,
+    }
+    payload = {"apiSelectId": ext["dataId"], "chartSetting": chart_setting}
+    if ext.get("dataType") == "api":
+        result = session.request("/qurestApi", payload)["result"]
+        rows = result["data"] if isinstance(result, dict) else result
+    else:
+        rows = session.request("/qurestSql", payload)["result"]
+
+    if not rows:
+        return chart   # 数据为空则不修改
+
+    axis_x      = ext["axisX"]       # 通常 "name"
+    axis_y      = ext["axisY"]       # 通常 "value"
+    series_fld  = ext["series"]      # "" 单系列 / "type" 多系列
+
+    cfg = json.loads(chart["config"])
+
+    if series_fld:
+        # ── 多系列：按 type 分组 ─────────────────────────────────────
+        x_seen = OrderedDict()
+        for r in rows:
+            x_seen[r[axis_x]] = None
+        x_data = list(x_seen.keys())
+
+        smap = OrderedDict()
+        for r in rows:
+            t = r[series_fld]
+            if t not in smap:
+                smap[t] = {}
+            smap[t][r[axis_x]] = r[axis_y]
+        series_names = list(smap.keys())
+
+        # 对齐 x_data，缺失填 None
+        for t in smap:
+            smap[t] = [smap[t].get(x) for x in x_data]
+
+        # 回填
+        if "xAxis" in cfg:
+            cfg["xAxis"]["data"] = x_data
+        if "legend" in cfg:
+            cfg["legend"]["data"] = series_names
+
+        # 保留原 series 模板样式，只替换 name/data
+        orig = {s.get("name", ""): s for s in cfg.get("series", [])}
+        new_series = []
+        for sname in series_names:
+            tmpl = dict(orig.get(sname, {}))
+            tmpl["name"] = sname
+            tmpl["data"] = smap[sname]
+            new_series.append(tmpl)
+        cfg["series"] = new_series
+
+    else:
+        # ── 单系列：直接取 value 列表 ────────────────────────────────
+        x_data = [r[axis_x] for r in rows]
+        y_data = [r[axis_y] for r in rows]
+
+        if "xAxis" in cfg:
+            cfg["xAxis"]["data"] = x_data
+        elif "yAxis" in cfg and isinstance(cfg["yAxis"], dict):
+            cfg["yAxis"]["data"] = x_data   # 横向图分类在 yAxis
+
+        if cfg.get("series"):
+            cfg["series"][0]["data"] = y_data
+
+    chart["config"] = json.dumps(cfg, ensure_ascii=False)
+    return chart
+
+
+# 用法：每个 SQL 图表保存后调用
+# chart_list = [fetch_and_fill_chart(session, c) for c in chart_list]
+# session.request("/save", base_save(report_id, designer, ..., chartList=chart_list))
+```
+
+### 注意
+
+- `parse_sql` 用于 UNION SQL 时，传不含 UNION 的简化版（`LIMIT 1` 即可）
+- `/qurestSql` 返回 `result` 是原始行列表（`list`），不是 dict
+- 单系列饼图（`series=""`）：`rows` 直接是 `[{name,value}, ...]`，回填到 `series[0].data`
+
+---
 ## 通用头部（大多数图表共用，按需裁剪）
 
 ```python
@@ -56,7 +241,10 @@ XVAL   = {"show": True, "type": "value"}                  # 横向图数值X轴
 ```python
 {"title": TITLE, "legend": LEGEND, "grid": GRID, "tooltip": TIP_AXIS,
  "xAxis": XCAT, "yAxis": {"show": True},
- "series": []}  # 引擎动态生成；JSON静态数据集需手动预填每个 series
+ # 必须保留一个带 itemStyle 的占位条目，否则前端 getSeriesItemStyle 读 series[0] 崩溃
+ # 引擎运行时用真实数据替换；JSON静态数据集需手动预填每个 series
+ "series": [{"type": "bar", "data": [], "barWidth": 15,
+             "itemStyle": {"color": "", "barBorderRadius": 0}}]}
 ```
 
 ### bar.stack — 堆叠柱状图
@@ -419,11 +607,9 @@ chart_rows = {str(ROW): {"cells": {str(c): {"text": " ", "virtual": layer_id}
 
 > 根级必须有 `"chartType": "map"`；无 xAxis/yAxis，用 `geo` 定义地图；series 只需 `name` + `coordinateSystem`（无 type 字段）
 >
-> **前端内置地区 JSON 数据**（用于地区编码查询）：
-> - 省级：`/desreport_/regionaljson/province.json`
-> - 市级：`/desreport_/regionaljson/province.city.json`
-> - 县区级：`/desreport_/regionaljson/province.city.area.json`
->
+> **⚠️ 不需要数据集**：区域地图的边界数据来自系统内部 GeoJSON 接口，**禁止调 `save_db` 创建数据集**。
+> `extData` 只需 `{"chartId": layer_id, "chartType": "map.simple"}`，不绑 dataId/dbCode。
+
 > **地图级别切换 API**：`/map/queryMapByCode`
 > - 全国：`{"name":100000, "label":"中华人民共和国", "mapType":"0"}`
 > - 省级：`{"name":530000, "label":"云南省", "mapType":"1"}`
@@ -453,7 +639,8 @@ chart_rows = {str(ROW): {"cells": {str(c): {"text": " ", "virtual": layer_id}
  "color": ["#c23531","#2f4554","#61a0a8","#d48265","#91c7ae","#749f83","#ca8622","#bda29a","#6e7074","#546570","#c4ccd3"]}
 
 # 省级地图（以云南省为例）— 修改 geo 中 5 个字段：
-# geo.map="530000", geo.mapCode=["530000"], geo.mapName="云南省", geo.mapLevel="1", geo.mapType="1"
+# geo.map="530000", geo.mapCode=[530000], geo.mapName="云南省", geo.mapLevel="1", geo.mapType="1"
+# 注意：省级 mapCode 是整数数组 [530000]，市级及以下才用字符串数组
 
 # 市级地图（以株洲市为例）— mapCode 需含上级省编码：
 # geo.map="430200", geo.mapCode=["430000","430200"], geo.mapName="株洲市", geo.mapLevel="2", geo.mapType="2"

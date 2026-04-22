@@ -5,7 +5,7 @@ JeecgBoot 大屏/仪表盘设计器 Python 工具库
 
 使用方式：
     from bi_utils import *
-    init_api('https://api3.boot.jeecg.com', 'your-token')
+    init_api('<api_base>', '<token>')
     page_id = create_page('销售大屏', style='bigScreen')
     add_number(page_id, '销售额', x=50, y=50, w=400, h=200, value=128560)
     add_chart(page_id, 'JBar', '月度销售', x=50, y=280, w=860, h=380,
@@ -404,6 +404,19 @@ def copy_page(page_id):
 # ============================================================
 # 组件添加函数
 # ============================================================
+def _resolve_comp_type(comp_key):
+    """
+    将 default_configs.json 变体 key 解析为实际 Vue 组件名。
+    如 JStatsSummary_1 -> JStatsSummary，JCardScroll_2 -> JCardScroll。
+    _1/_2/_3 后缀只用于选择默认配置模板，不是真实 compType（实测 2026-04-22）。
+    """
+    import re
+    m = re.match(r'^(J[A-Za-z]+)_\d+$', comp_key)
+    if m:
+        return m.group(1)
+    return comp_key
+
+
 def add_component(page_id, component, title, x, y, w, h, config=None):
     """
     添加通用组件到页面。
@@ -423,6 +436,9 @@ def add_component(page_id, component, title, x, y, w, h, config=None):
 
     key = _gen_key()
 
+    # 变体 key 转换为实际 compType（JStatsSummary_1 -> JStatsSummary）
+    actual_component = _resolve_comp_type(component)
+
     # 栅格单位转换为像素（仪表盘模式）
     info = _page_info.get(page_id, {})
     style = info.get('style', 'bigScreen')
@@ -439,8 +455,8 @@ def add_component(page_id, component, title, x, y, w, h, config=None):
         'timeOut': 0,
         'size': {'width': px_w, 'height': px_h},
         'chart': {
-            'subclass': component,
-            'category': _get_category(component),
+            'subclass': actual_component,
+            'category': _get_category(actual_component),
         },
         'option': {},
         'chartData': [],
@@ -454,11 +470,11 @@ def add_component(page_id, component, title, x, y, w, h, config=None):
         _deep_merge(default_config, config)
 
     # DoubleLineBar 特殊处理：补充 seriesType
-    if component == 'DoubleLineBar' and 'seriesType' not in default_config:
+    if actual_component == 'DoubleLineBar' and 'seriesType' not in default_config:
         default_config['seriesType'] = []
 
     comp = {
-        'component': component,
+        'component': actual_component,
         'componentName': title,
         'visible': True,
         'i': key,

@@ -10,7 +10,7 @@
 | GET | `/getFieldDataById` | 按ID查询指定字段（desformCode, dataId, fieldNames） |
 | GET | `/getTranslateDataById` | 按ID查询（含翻译） |
 | GET | `/getDataByIds` | 批量按ID查询 |
-| GET | `/getViewListByCode` | 获取表单的视图列表 |
+| GET | `/getViewListByCode` | 获取表单的所有表单视图（izView=1 的视图，非列表视图） |
 
 ## 数据操作
 

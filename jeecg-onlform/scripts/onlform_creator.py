@@ -265,6 +265,8 @@ def build_head(table_config):
     if table_config.get('tableType') == 3:
         head['relationType'] = table_config.get('relationType', 0)
         head['tabOrderNum'] = table_config.get('tabOrderNum', 1)
+        head['mainTable'] = table_config.get('mainTable', '')
+        head['mainField'] = table_config.get('mainField', '')
     # 树表额外字段
     if table_config.get('isTree') == 'Y':
         head['treeParentIdField'] = table_config.get('treeParentIdField', 'pid')
@@ -295,6 +297,52 @@ def create_table(api_base, token, table_config):
     print(f'{"=" * 50}')
 
     fields = build_fields_from_config(table_config.get('fields', []))
+
+    # 子表自动注入外键字段（tableType=3 且配置了 mainTable）
+    # 规则：子表必须有一个隐藏的外键字段指向主表，否则主子表关联完全失效。
+    # 字段名默认为 {mainTable}_id，若用户已在 fields 中手动配置了带 mainTable 的字段则跳过。
+    if table_config.get('tableType') == 3:
+        main_table = table_config.get('mainTable', '')
+        main_field = table_config.get('mainField', 'id')
+        if main_table:
+            # 检查用户是否已手动配置外键字段
+            has_fk = any(
+                f.get('mainTable') == main_table
+                for f in table_config.get('fields', [])
+            )
+            if not has_fk:
+                fk_field_name = f'{main_table}_id'
+                fk_field = make_field(
+                    order=1,
+                    db_name=fk_field_name,
+                    db_txt='主表ID',
+                    show_type='text',
+                    db_type='string',
+                    db_length=36,
+                    is_show_form='0',
+                    is_show_list='0',
+                    main_table=main_table,
+                    main_field=main_field,
+                )
+                fields.insert(0, fk_field)
+                print(f'  [自动] 注入外键字段 {fk_field_name}（主表={main_table}, 主字段={main_field}）')
+
+    # 自动添加 bpm_status 字段（如果配置了 bpmForm: true）
+    if table_config.get('bpmForm', False):
+        bpm_status_field = {
+            "dbFieldName": "bpm_status",
+            "dbFieldTxt": "流程状态",
+            "fieldShowType": "list",
+            "dbType": "string",
+            "dbLength": 32,
+            "fieldMustInput": "0",
+            "isQuery": "0",
+            "isShowForm": "0",
+            "isShowList": "1",
+            "dictField": "bpm_status"
+        }
+        fields.append(bpm_status_field)
+        print(f'  [自动] 添加 bpm_status 字段（流程状态）')
     head = build_head(table_config)
     indexs = build_indexs(table_config.get('indexs'))
 

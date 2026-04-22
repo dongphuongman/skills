@@ -223,9 +223,9 @@ config = {
 5. Word 风格（`formStyle: 'word'`）由 `_apply_word_layout` 自动处理，CSS 增强中无需重复设置 Word 主题的基础边框样式
 6. 仅预览/使用时 CSS 增强生效，设计器中不生效
 
-## 移动端视图样式
+## 移动端表单视图样式
 
-移动端视图通过 `config.designMobileView = true` 和 `config.disableMobileCss` 控制。
+移动端表单视图通过 `config.designMobileView = true` 和 `config.disableMobileCss` 控制。
 
 **设备尺寸变量**（mobileView.scss）：
 - iPhone 5：320×568px

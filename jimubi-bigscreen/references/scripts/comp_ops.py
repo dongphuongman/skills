@@ -319,7 +319,6 @@ def _load_default_configs():
     candidates = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'default_configs.json'),
         os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts', 'default_configs.json')),
-        os.path.normpath(r'C:\Users\25067\.claude\skills\jimubi-bigscreen\references\scripts\default_configs.json'),
     ]
     for p in candidates:
         if os.path.exists(p):

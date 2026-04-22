@@ -6,12 +6,15 @@ JeecgBoot 表单设计器通用创建脚本
 用法:
   python desform_creator.py --api-base <URL> --token <TOKEN> --config <config.json>
   python desform_creator.py --api-base <URL> --token <TOKEN> --config <config.json> --force
+  python desform_creator.py --api-base <URL> --token <TOKEN> --tenant-id 2 --app-id <APP_ID> --config <config.json>
 
 参数:
-  --api-base   JeecgBoot 后端地址
-  --token      X-Access-Token
-  --config     JSON 配置文件路径
-  --force      强制覆盖已存在的表单（默认检测到已存在时退出）
+  --api-base    JeecgBoot 后端地址
+  --token       X-Access-Token
+  --config      JSON 配置文件路径
+  --force       强制覆盖已存在的表单（默认检测到已存在时退出）
+  --tenant-id   lowApp 模式：组织（租户）ID（整数）
+  --app-id      lowApp 模式：应用 ID（字符串）；与 --tenant-id 配合使用
 
 JSON 配置格式:
 {
@@ -97,6 +100,7 @@ for _path in [os.getcwd(), _SCRIPT_DIR]:
         break
 
 from desform_utils import *
+from desform_utils import _apply_half_layout, _apply_word_layout, _is_half_suitable
 
 
 # ============================================================
@@ -215,8 +219,15 @@ _SUB_PARAM_MAP = {
     'dictTable': 'dict_table',
     'dictCodeCol': 'dict_code_col',
     'dictTextCol': 'dict_text_col',
+    'style': 'style',
+    'queryScope': 'query_scope',
+    'filterable': 'filterable',
+    'clearable': 'clearable',
+    'disabled': 'disabled',
     # sub-select-tree
     'categoryCode': 'category_code',
+    'dataFrom': 'data_from',
+    'tableConf': 'table_conf',
     # sub-link-record
     'sourceCode': 'source_code',
     'titleField': 'title_field',
@@ -275,6 +286,7 @@ _PARAM_MAP = {
     'showFields': 'show_fields',
     'showMode': 'show_mode',
     'showType': 'show_type',
+    'isSelf': 'is_self',
     # link-field
     'linkRecordKey': 'link_record_key',
     'showField': 'show_field',
@@ -285,19 +297,37 @@ _PARAM_MAP = {
     'dictCodeCol': 'dict_code_col',
     'dictTextCol': 'dict_text_col',
     'style': 'style',
+    'queryScope': 'query_scope',
+    'filterable': 'filterable',
+    'clearable': 'clearable',
+    'disabled': 'disabled',
     # select-tree
     'categoryCode': 'category_code',
+    'dataFrom': 'data_from',
+    'tableConf': 'table_conf',
     # barcode
     'sourceModel': 'source_model',
     'maxWidth': 'max_width',
     # capital-money
     'moneyWidgetKey': 'money_widget_key',
+    'moneyField': 'money_field',
     # summary
     'subTableModel': 'sub_table_model',
     'fieldModel': 'field_model',
     'summaryType': 'summary_type',
+    'linkTable': 'sub_table_model',
+    'field': 'field_model',
+    'filter': 'filter',
     # text-compose
     # (expression 已在 formula 区映射)
+    # remoteAPI 远程取值
+    'remoteAPI': 'remote_api',
+    # 默认值表达式（compose 类型，支持 {{上下文变量}} 和 $字段引用$）
+    'defaultExpr': 'default_expr',
+    # 填值规则编码（仅 input 控件支持）
+    'fillRuleCode': 'fill_rule_code',
+    # 完全只读（配合填值规则使用，防止用户修改生成值）
+    'readonly': 'readonly',
     # location
     'defaultCurrent': 'default_current',
     'showMap': 'show_map',
@@ -457,7 +487,7 @@ def build_widget(field_def):
     if ftype == 'auto-number':
         return factory(name, **kwargs)
 
-    # table-dict：需要 dict_table 等位置参数
+    # table-dict：需要 dict_table 等位置参数，style 和 query_scope 通过 **kwargs 传递
     if ftype == 'table-dict':
         dict_table = kwargs.pop('dict_table', '')
         dict_code_col = kwargs.pop('dict_code_col', '')
@@ -540,23 +570,31 @@ def _post_process_widgets(fields, widgets):
 
     处理内容：
     1. capital-money: 自动查找前面最近的 money 控件 key，设置 moneyWidgetKey
-    2. formula: 表达式中的 $字段名$ 替换为实际 model
-    3. barcode: sourceModel 中的字段名替换为实际 model
+    2. summary: linkTable/field/filter.rules 中的中文名解析为实际 model
+    3. formula: 表达式中的 $字段名$ 替换为实际 model
+    4. barcode: sourceModel 中的字段名替换为实际 model
+    5. text-compose: expression 中的字段名替换为实际 model
     """
     registry = _build_name_registry(fields, widgets)
 
     for i, (fd, widget) in enumerate(zip(fields, widgets)):
         inner, key, model, wtype = _extract_widget_info(widget)
 
-        # 1. capital-money: 自动关联 moneyWidgetKey
+        # 1. capital-money: 关联 moneyWidgetKey
+        #    优先级: moneyField(字段中文名解析) > moneyWidgetKey(直接指定) > 自动查找前面最近的 money/formula/summary
         if wtype == 'capital-money':
             opts = inner.get('options', {})
-            if not opts.get('moneyWidgetKey'):
-                # 查找前面最近的 money 控件
+            money_field_name = opts.pop('moneyField', None) or fd.get('moneyField')
+            if money_field_name and money_field_name in registry:
+                resolved_key = registry[money_field_name][0]
+                opts['moneyWidgetKey'] = resolved_key
+                print(f'  [指定关联] 大写金额 "{fd.get("name")}" → moneyField="{money_field_name}" → moneyWidgetKey={resolved_key}')
+            elif not opts.get('moneyWidgetKey'):
+                # 兜底：查找前面最近的 money/formula/summary 控件
                 money_key = None
                 for j in range(i - 1, -1, -1):
                     _, prev_key, _, prev_type = _extract_widget_info(widgets[j])
-                    if prev_type == 'money':
+                    if prev_type in ('money', 'formula', 'summary'):
                         money_key = prev_key
                         break
                 if money_key:
@@ -565,7 +603,44 @@ def _post_process_widgets(fields, widgets):
                 else:
                     print(f'  [警告] 大写金额 "{fd.get("name")}" 未找到可关联的金额控件')
 
-        # 2. formula: 解析表达式中的字段引用
+        # 2. summary: 将中文名解析为实际 model（linkTable → sub_table_model, field → field_model）
+        if wtype == 'summary':
+            opts = inner.get('options', {})
+            # 解析 linkTable（子表中文名 → 子表 model）
+            link_table = opts.get('linkTable', '')
+            if link_table and link_table in registry:
+                resolved_model = registry[link_table][1]
+                opts['linkTable'] = resolved_model
+                print(f'  [自动解析] 汇总 "{fd.get("name")}" linkTable: "{link_table}" → {resolved_model}')
+            # 解析 field（子表列中文名 → 列 model），inner-record-count 不需要解析
+            field_val = opts.get('field', '')
+            if field_val and field_val != 'inner-record-count' and field_val in registry:
+                resolved_field = registry[field_val][1]
+                opts['field'] = resolved_field
+                print(f'  [自动解析] 汇总 "{fd.get("name")}" field: "{field_val}" → {resolved_field}')
+            # 解析 filter.rules 中的 model 和 value（中文名 → 实际 model）
+            flt = opts.get('filter', {})
+            if flt.get('enabled'):
+                for rule in flt.get('rules', []):
+                    # 解析 rule.model（子表列中文名 → 列 model）
+                    rule_model = rule.get('model', '')
+                    if rule_model and rule_model in registry:
+                        resolved_model = registry[rule_model][1]
+                        rule['model'] = resolved_model
+                        print(f'  [自动解析] 汇总 "{fd.get("name")}" filter.model: "{rule_model}" → {resolved_model}')
+                    # 当 valueType=field 时，value 数组中的值也是字段引用，需要解析
+                    if rule.get('valueType') == 'field':
+                        new_values = []
+                        for v in rule.get('value', []):
+                            if isinstance(v, str) and v in registry:
+                                resolved_v = registry[v][1]
+                                print(f'  [自动解析] 汇总 "{fd.get("name")}" filter.value: "{v}" → {resolved_v}')
+                                new_values.append(resolved_v)
+                            else:
+                                new_values.append(v)
+                        rule['value'] = new_values
+
+        # 3. formula: 解析表达式中的字段引用
         if wtype == 'formula':
             opts = inner.get('options', {})
             for expr_field in ('expression', 'dateBegin', 'dateEnd', 'dateAddExp'):
@@ -595,6 +670,15 @@ def _post_process_widgets(fields, widgets):
                     opts['expression'] = resolved
                     print(f'  [自动解析] 文本组合 "{fd.get("name")}" expression: {expr} → {resolved}')
 
+        # 5. link-record: titleField 若为字段中文名则解析为实际 model（自关联时常用）
+        if wtype == 'link-record':
+            opts = inner.get('options', {})
+            tf = opts.get('titleField', '')
+            if tf and tf in registry:
+                resolved_model = registry[tf][1]
+                opts['titleField'] = resolved_model
+                print(f'  [自动解析] 关联记录 "{fd.get("name")}" titleField: "{tf}" → {resolved_model}')
+
     # 子表内 formula/product 也需要解析
     for i, (fd, widget) in enumerate(zip(fields, widgets)):
         inner, _, _, wtype = _extract_widget_info(widget)
@@ -612,25 +696,56 @@ def _post_process_widgets(fields, widgets):
                                     sub_opts[expr_field] = resolved
 
 
+def _extract_field_table(design_json):
+    """从设计 JSON 中提取字段参照表，委托给 desform_utils 中的同名函数"""
+    return extract_field_table_from_design(design_json)
+
+
+def _print_field_table(field_rows):
+    """格式化打印字段参照表"""
+    print(f'\n  {"字段名称":<20} {"key":<35} {"model":<45} {"type"}')
+    print(f'  {"-"*20} {"-"*35} {"-"*45} {"-"*15}')
+    for row in field_rows:
+        print(f'  {row["name"]:<20} {row["key"]:<35} {row["model"]:<45} {row["type"]}')
+
+
 def main():
     parser = argparse.ArgumentParser(description='JeecgBoot 表单设计器通用创建工具')
     parser.add_argument('--api-base', required=True, help='JeecgBoot 后端地址')
     parser.add_argument('--token', required=True, help='X-Access-Token')
-    parser.add_argument('--config', required=True, help='JSON 配置文件路径')
+    parser.add_argument('--config', required=True, help='JSON 配置文件路径，传 "-" 则从 stdin 读取')
     parser.add_argument('--force', action='store_true', help='强制覆盖已存在的表单')
     parser.add_argument('--check-only', action='store_true',
                         help='仅检查表单编码是否可用，不创建表单')
+    parser.add_argument('--preprocess', action='store_true',
+                        help='预处理模式：生成设计JSON到临时文件后退出，供AI手动修改，'
+                             '修改完成后调用 save_design_from_file(code, file_path) 保存')
+    parser.add_argument('--tenant-id', type=int, default=None,
+                        help='lowApp 模式：组织（租户）ID，与 --app-id 配合使用')
+    parser.add_argument('--app-id', default=None,
+                        help='lowApp 模式：应用 ID，与 --tenant-id 配合使用')
     args = parser.parse_args()
 
-    with open(args.config, 'r', encoding='utf-8') as f:
-        config = json.load(f)
+    if args.config == '-':
+        import sys as _sys, io as _io
+        stdin_stream = _io.TextIOWrapper(_sys.stdin.buffer, encoding='utf-8')
+        config = json.load(stdin_stream)
+    else:
+        with open(args.config, 'r', encoding='utf-8') as f:
+            config = json.load(f)
 
     form_name = config['formName']
     form_code = config['formCode']
     layout = config.get('layout', 'auto')
     title_index = config.get('titleIndex', 0)
 
-    init_api(args.api_base, args.token)
+    if args.tenant_id is not None:
+        import importlib, desform_lowapp_utils as _lowapp_utils
+        _lowapp_utils.init_lowapp(args.api_base, args.token,
+                                  tenant_id=args.tenant_id,
+                                  app_id=args.app_id)
+    else:
+        init_api(args.api_base, args.token)
 
     # --check-only：仅检查编码可用性
     if args.check_only:
@@ -658,10 +773,67 @@ def main():
     # JS/CSS 增强配置
     expand = config.get('expand')
 
+    # config 覆盖项：从 JSON 配置中提取需要覆盖的 config 字段
+    config_overrides = {}
+    if config.get('customRequestURL'):
+        config_overrides['customRequestURL'] = [{"url": config['customRequestURL']}]
+    if 'transactional' in config:
+        config_overrides['transactional'] = config['transactional']
+
+    # --preprocess：生成设计 JSON 到临时文件后退出，供 AI 手动修改
+    if args.preprocess:
+        import tempfile
+        form_style = 'word' if layout == 'word' else 'normal'
+
+        # 与 create_form 内部相同的布局逻辑
+        if layout == 'word':
+            top_items, all_models = _apply_word_layout(widgets, form_name=form_name)
+        elif layout == 'half' or (layout == 'auto' and len(widgets) >= 6):
+            top_items, all_models = _apply_half_layout(widgets)
+        else:
+            top_items = []
+            all_models = []
+            for item in widgets:
+                if isinstance(item, tuple):
+                    top_items.append(item[0])
+                    all_models.append((item[1], item[2]))
+                else:
+                    top_items.append(item)
+                    all_models.append((item.get('key', ''), item.get('model', '')))
+
+        title_model = all_models[title_index][1] if title_index < len(all_models) else all_models[0][1]
+        design_json = build_design_json(top_items, title_model, form_style, expand=expand,
+                                        config_overrides=config_overrides or None)
+
+        # 创建表单实体（获取 form_id，设计 JSON 稍后由 save_design_from_file 保存）
+        form_id, uc, actual_code = find_or_create_form(form_name, form_code)
+
+        # 写入临时文件（格式化 JSON）
+        tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False,
+            encoding='utf-8', prefix=f'desform_{form_code}_'
+        )
+        json.dump(design_json, tmp, ensure_ascii=False, indent=2)
+        tmp.close()
+
+        field_rows = _extract_field_table(design_json)
+
+        print(f'\n{"=" * 60}')
+        print(f'[预处理模式] 设计JSON已生成，等待手动修改后保存')
+        print(f'{"=" * 60}')
+        print(f'  表单ID:   {form_id}')
+        print(f'  表单编码: {actual_code}')
+        print(f'  JSON文件: {tmp.name}')
+        _print_field_table(field_rows)
+        print(f'\n修改完成后，调用以下方法保存:')
+        print(f'  save_design_from_file("{actual_code}", r"{tmp.name}")')
+        sys.exit(0)
+
     # 创建表单
     form_id, title_model = create_form(form_name, form_code, widgets,
                                         title_index=title_index, layout=layout,
-                                        expand=expand)
+                                        expand=expand,
+                                        config_overrides=config_overrides or None)
 
     print(f'\n{"=" * 50}')
     print(f'表单创建成功')

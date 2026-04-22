@@ -23,8 +23,8 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 
 # ── 默认环境（可在调用脚本中覆盖） ─────────────────────────────────
-DEFAULT_BASE_URL = "http://192.168.1.6:8085/jmreport"
-DEFAULT_TOKEN    = "09825a23-9ee0-4b01-ae8c-a962e2d63f08"
+DEFAULT_BASE_URL = "<api_base>"
+DEFAULT_TOKEN    = "<token>"
 DEFAULT_TENANT   = "2"
 
 def report_urls(report_id: str, base_url: str = DEFAULT_BASE_URL,
@@ -67,11 +67,20 @@ class Session:
         for attempt in range(3):
             headers = {}
             need_sign = data is not None and any(path.endswith(p) for p in SIGNED_PATHS)
-            if need_sign:
-                headers["X-TIMESTAMP"] = str(int(time.time() * 1000))
-                headers["X-Sign"] = _compute_sign(data)
-            url  = self.base_url + path
-            resp = self._s.request(method, url, json=data, headers=headers)
+            url = self.base_url + path
+            if method.upper() == "GET":
+                params = dict(data) if data else {}
+                if need_sign:
+                    # token 必须先加入 params，再一起参与签名计算
+                    params["token"] = self._s.headers.get("X-Access-Token", "")
+                    headers["X-TIMESTAMP"] = str(int(time.time() * 1000))
+                    headers["X-Sign"] = _compute_sign(params)
+                resp = self._s.request(method, url, params=params, headers=headers)
+            else:
+                if need_sign:
+                    headers["X-TIMESTAMP"] = str(int(time.time() * 1000))
+                    headers["X-Sign"] = _compute_sign(data)
+                resp = self._s.request(method, url, json=data, headers=headers)
             resp.raise_for_status()
             result = resp.json()
             if not result.get("success"):
@@ -200,7 +209,7 @@ def save_db(
     db_type: "0"=SQL / "1"=API / "3"=JSON / "4"=共享
     is_list / is_page: "0"/"1"
     json_data: JSON数据集时必填，格式 '{"data":[...]}'（必须包裹！）
-    api_method: API数据集时填 "GET" 或 "POST"
+    api_method: API数据集请求方式，"0"=GET，"1"=POST
     """
     payload: dict = {
         "izSharedSource": is_shared,
@@ -535,6 +544,63 @@ def parallel_save_dbs(session: Session, db_configs: list[dict]) -> list[str]:
         return [f.result() for f in futures]
 
 
+def parallel_init_and_parse(
+    session: Session,
+    report_id: str,
+    designer_obj: dict,
+    sql: str,
+    db_source: str = "",
+    **save_overrides,
+) -> list[dict]:
+    """
+    ⚠️ 已不推荐。保留供旧脚本兼容。新脚本请用 `parse_and_save_dataset`（3-step 流程）。
+
+    并行执行「首次 /save（创建报表占位）」和「parse_sql（解析 SQL 字段）」，返回 fieldList。
+    """
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        save_fut  = ex.submit(
+            session.request, "/save",
+            base_save(report_id, designer_obj, **save_overrides)
+        )
+        parse_fut = ex.submit(parse_sql, session, sql, db_source)
+        save_fut.result()
+        return parse_fut.result()
+
+
+def parse_and_save_dataset(
+    session: Session,
+    report_id: str,
+    db_code: str,
+    db_name: str,
+    sql: str,
+    db_source: str = "",
+    **save_db_kwargs,
+) -> tuple[list[dict], str]:
+    """
+    解析 SQL → 保存数据集，返回 (field_list, db_id)。
+
+    **关键特性：允许 report_id 此时尚不存在于服务端**（orphan report_id）。
+    后续最终 /save 会以此 id 创建报表，数据集会正确绑定上去。实测验证通过。
+
+    相比「首次 /save + parse + saveDb」3 步，此路径**省掉 1 次占位 /save**（~0.5-2s）。
+
+    推荐的单报表最快流程（3 步，4 HTTP 串行）：
+        ds_id = ensure_datasource(session, ...)          # 1-2 HTTP
+        report_id = gen_id()                              # 客户端，0 HTTP
+        field_list, db_id = parse_and_save_dataset(       # 2 HTTP
+            session, report_id, "dsCode", "中文名", sql, db_source=ds_id)
+        session.request("/save", base_save(               # 1 HTTP — 首次创建报表
+            report_id, make_designer(report_id, name),
+            rows=rows, cols=cols, styles=styles, merges=merges, chartList=[]))
+
+    **save_db_kwargs** 透传给 `save_db`（常用：db_type, is_list, is_page, json_data, api_url）。
+    """
+    field_list = parse_sql(session, sql, db_source)
+    db_id = save_db(session, report_id, db_code, db_name, sql, field_list,
+                    db_source=db_source, **save_db_kwargs)
+    return field_list, db_id
+
+
 # ── 数据源辅助 ──────────────────────────────────────────────────────
 
 def find_datasource(session: Session, ds_name: str) -> str:
@@ -548,6 +614,51 @@ def find_datasource(session: Session, ds_name: str) -> str:
     if not matched:
         names = [r.get("name") for r in records]
         raise RuntimeError(f"未找到数据源 '{ds_name}'，可用列表：{names}")
+    return max(matched, key=lambda x: x["id"])["id"]
+
+
+def ensure_datasource(
+    session: Session,
+    name: str,
+    db_type: str,
+    db_url: str,
+    db_username: str = "",
+    db_password: str = "",
+    db_driver: str = "",
+    report_id: str = "",
+) -> str:
+    """
+    确保指定名称的数据源存在，返回其 ID。
+
+    - 已存在（按 name 匹配）: 直接返回 ID，**1 次 HTTP**
+    - 不存在: 创建 + 再查 ID，**2 次 HTTP**
+
+    与手写「查询 + 保存 + 再查」3 次 HTTP 相比，已存在场景省 2 次、新建场景省 1 次。
+    `/initDataSource` 不需要签名，比 `/getDataSourceByPage` 更快。
+
+    注意：`addDataSource` 返回 `result: true`（布尔值），服务端不返回新建 ID，
+    因此新建后必须再次查询才能拿到 ID。
+    """
+    # 1. 按名称查重
+    resp = session.get("/initDataSource")
+    records = resp.get("result", [])
+    matched = [r for r in records if r.get("name") == name]
+    if matched:
+        return max(matched, key=lambda x: x["id"])["id"]
+
+    # 2. 不存在 → 新建
+    session.request("/addDataSource", {
+        "id": "", "reportId": report_id, "code": "",
+        "name": name, "dbType": db_type, "dbDriver": db_driver,
+        "dbUrl": db_url, "dbUsername": db_username, "dbPassword": db_password,
+    })
+
+    # 3. 再查以获取新建的 ID
+    resp = session.get("/initDataSource")
+    records = resp.get("result", [])
+    matched = [r for r in records if r.get("name") == name]
+    if not matched:
+        raise RuntimeError(f"数据源 '{name}' 保存后仍无法查询到，请检查服务端日志")
     return max(matched, key=lambda x: x["id"])["id"]
 
 
@@ -709,6 +820,127 @@ def parallel_create_links(session: Session, link_configs: list[dict]) -> list[st
     with ThreadPoolExecutor(max_workers=len(link_configs)) as ex:
         futures = [ex.submit(create_link, session, **cfg) for cfg in link_configs]
         return [f.result() for f in futures]
+
+
+def parallel_parse_apis(session: Session, api_urls: list[str]) -> list[list[dict]]:
+    """并行解析多个 API 数据集字段，返回 fieldList 列表（顺序与输入一致）。"""
+    with ThreadPoolExecutor(max_workers=min(len(api_urls), 8)) as ex:
+        futures = [ex.submit(parse_api, session, u) for u in api_urls]
+        return [f.result() for f in futures]
+
+
+def parallel_fill_charts(session: Session, charts: list[dict]) -> list[dict]:
+    """
+    并行回填 chartList 里的 SQL/API 图表数据（原地修改 + 返回列表）。
+
+    支持规则：
+      - extData.dataType in ("sql","api") 且 extData.dataId 非空 → 调 /qurestSql 或 /qurestApi
+      - 其他（JSON/静态/_NONE） → 跳过
+      - 单系列（series=""）：回填 series[0].data 和 xAxis.data / yAxis.data
+      - 多系列（series="type"）：按 type 列分组重建 series，保留第 0 条模板样式
+      - 横向图（yAxis.type=="category"）：分类回填到 yAxis.data
+      - 饼图/漏斗/仪表盘（无 xAxis/yAxis）：rows 为 [{name,value},...] 直接回填 series[0].data
+
+    并发上限 10。
+    """
+    from collections import OrderedDict
+    import copy
+
+    def _fill_one(chart: dict) -> dict:
+        ext = chart.get("extData", {})
+        data_type = ext.get("dataType")
+        data_id = ext.get("dataId")
+        if data_type not in ("sql", "api") or not data_id:
+            return chart
+
+        payload = {
+            "apiSelectId": data_id,
+            "chartSetting": {
+                "chartId": ext.get("chartId", ""), "id": ext.get("chartId", ""),
+                "chartType": ext.get("chartType", ""), "dataType": data_type,
+                "apiStatus": ext.get("apiStatus", "1"), "dataId": data_id,
+                "dataId1": "", "dbCode": ext.get("dbCode", ""),
+                "axisX": ext.get("axisX", "name"), "axisY": ext.get("axisY", "value"),
+                "series": ext.get("series", ""),
+                "xText": ext.get("xText", ""), "yText": ext.get("yText", ""),
+                "linkIds": "", "source": "", "target": "", "isTiming": "", "intervalTime": "",
+                "isCustomPropName": ext.get("isCustomPropName", False), "run": 1,
+            },
+        }
+        if data_type == "api":
+            result = session.request("/qurestApi", payload)["result"]
+            rows = result.get("data") if isinstance(result, dict) else result
+        else:
+            rows = session.request("/qurestSql", payload)["result"]
+        if not rows:
+            return chart
+
+        cfg = json.loads(chart["config"])
+        axis_x = ext.get("axisX", "name")
+        axis_y = ext.get("axisY", "value")
+        series_fld = ext.get("series", "")
+
+        if series_fld:
+            # 多系列：按 type 分组
+            x_seen = OrderedDict()
+            for r in rows:
+                x_seen[r[axis_x]] = None
+            x_data = list(x_seen.keys())
+
+            smap = OrderedDict()
+            for r in rows:
+                t = r[series_fld]
+                smap.setdefault(t, {})[r[axis_x]] = r[axis_y]
+            series_names = list(smap.keys())
+            for t in smap:
+                smap[t] = [smap[t].get(x) for x in x_data]
+
+            if isinstance(cfg.get("xAxis"), dict):
+                cfg["xAxis"]["data"] = x_data
+            elif isinstance(cfg.get("yAxis"), dict):
+                cfg["yAxis"]["data"] = x_data
+            if isinstance(cfg.get("legend"), dict):
+                cfg["legend"]["data"] = series_names
+
+            orig = {s.get("name", ""): s for s in cfg.get("series", [])}
+            template = cfg["series"][0] if cfg.get("series") else {}
+            new_series = []
+            for sname in series_names:
+                tmpl = copy.deepcopy(orig.get(sname, template))
+                tmpl["name"] = sname
+                tmpl["data"] = smap[sname]
+                tmpl.setdefault("typeData", [])
+                new_series.append(tmpl)
+            cfg["series"] = new_series
+        else:
+            # 单系列：rows 可能是 [{name,value},...] 或两列
+            if rows and isinstance(rows[0], dict) and axis_x in rows[0] and axis_y in rows[0]:
+                x_data = [r[axis_x] for r in rows]
+                y_data = [r[axis_y] for r in rows]
+            else:
+                x_data = y_data = []
+
+            # 饼图/漏斗：无 xAxis/yAxis，series[0].data 是 {name,value} 列表
+            if not cfg.get("xAxis") and not cfg.get("yAxis"):
+                if cfg.get("series"):
+                    cfg["series"][0]["data"] = [
+                        {"name": n, "value": v, "itemStyle": {"color": None}}
+                        for n, v in zip(x_data, y_data)
+                    ]
+            else:
+                if isinstance(cfg.get("xAxis"), dict) and cfg["xAxis"].get("type") != "value":
+                    cfg["xAxis"]["data"] = x_data
+                elif isinstance(cfg.get("yAxis"), dict) and cfg["yAxis"].get("type") == "category":
+                    cfg["yAxis"]["data"] = x_data
+                if cfg.get("series"):
+                    cfg["series"][0]["data"] = y_data
+
+        chart["config"] = json.dumps(cfg, ensure_ascii=False)
+        return chart
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        list(ex.map(_fill_one, charts))
+    return charts
 
 
 def print_summary(report_id: str, report_name: str, base_url: str = DEFAULT_BASE_URL, token: str = DEFAULT_TOKEN):

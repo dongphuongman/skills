@@ -139,7 +139,9 @@
 ```python
 # 主表
 LINK_RECORD(name, source_code, title_field,
-            show_fields=None, show_mode='single', show_type='card', **kw)
+            show_fields=None, show_mode='single', show_type='card',
+            is_self=False, **kw)
+# is_self=True：自关联树模式，自动在顶层写入 isSelf=true 并将 valueSplit 置空
 LINK_FIELD(name, link_record_key, show_field,
            field_type='input', field_options=None, save_type='view', **kw)
 
@@ -150,7 +152,13 @@ SUB_LINK_FIELD(name, parent_key, link_record_key, show_field,
                field_type='input', field_options=None, col_width='150px')
 ```
 
-## 十、常见踩坑
+## 十、自关联（表单数据树）
+
+当 `sourceCode` 指向表单自身（link-record 关联自己）时，会形成**表单数据树**结构——记录之间通过父子关系形成无限级层级（如组织架构、任务分解、无限级分类）。
+
+> 这是一种特殊配置，需要额外的 `isSelf: true` 顶层属性，且有"先有鸡先有蛋"的创建顺序问题。**遇到此场景必须阅读 `references/desform-self-tree.md`**，其中包含完整配置方法和两阶段创建法。
+
+## 十一、常见踩坑
 
 | 问题 | 原因 | 解决 |
 |------|------|------|

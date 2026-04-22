@@ -7,7 +7,7 @@ Online 表单默认值解析工具
 用法：
   from onlform_defval import resolve_default_values, init_api
 
-  init_api('http://localhost:8080/jeecg-boot', 'your-token')
+  init_api('<api_base>', '<token>')
   values = resolve_default_values({
       'sys_date': {'value': '#{date}', 'type': 'string', 'view': 'date'},
       'sys_user': {'value': '#{sysUserCode}', 'type': 'string', 'view': 'text'},

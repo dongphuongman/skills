@@ -40,10 +40,11 @@ description: Use when user asks to generate JeecgBoot CRUD code, create a new mo
 1. **定位目标模块**：从用户提到的表名、模块名、实体名中识别目标
 2. **扫描已有代码文件**：在后端和前端目录中搜索已生成的文件
    ```bash
+   # <project_root>/<project_vue_root>：后端/前端项目根目录，使用前需向用户确认
    # 搜索后端 Entity 文件
-   find E:/workspace-cc-jeecg/jeecg-boot-framework-2026 -name "{EntityName}.java" -path "*/entity/*"
+   find <project_root> -name "{EntityName}.java" -path "*/entity/*"
    # 搜索前端 data.ts 文件
-   find E:/workspace-cc-jeecg/jeecgboot-vue3-2026/src/views -name "{EntityName}.data.ts"
+   find <project_vue_root>/src/views -name "{EntityName}.data.ts"
    ```
 3. **读取全部已有文件**：Entity.java、*.data.ts、*List.vue、*Modal.vue（如有 Form.vue 也读取）
 4. **解析当前字段列表**：从 Entity.java 解析已有字段

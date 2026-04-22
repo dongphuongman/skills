@@ -106,30 +106,102 @@ b64 = base64.b64encode(condition.encode('utf-8')).decode('utf-8')
 
 ---
 
-## 2. 抄送配置（CcConfigJson）
+## 2. 抄送配置（ccConfigJson）
 
-用户任务可配置抄送人，通知相关人员但不影响审批流程：
+用户任务可配置抄送人，通知相关人员但不影响审批流程。`value` 为 JSON 数组经 base64 编码后的字符串。
 
 ```xml
 <bpmn2:userTask id="task_xxx" name="审批">
   <bpmn2:extensionElements>
-    <flowable:CcConfigJson value="${BASE64_ENCODED_JSON}" />
+    <flowable:ccConfigJson value="BASE64_ENCODED_JSON" />
   </bpmn2:extensionElements>
 </bpmn2:userTask>
 ```
 
-### 抄送类型
+> **注意：** 标签名为 `ccConfigJson`（全小写 cc），不是 `CcConfigJson`。
 
-| 类型 | 说明 |
-|------|------|
-| `candidateUsers` | 指定人 |
-| `candidateRoles` | 指定角色 |
-| `candidateDeptPositions` | 指定岗位 |
-| `submitter_user` | 提交人本人 |
-| `submitter_dept_leader` | 提交人部门负责人 |
-| `submitter_parent_dept_leader` | 上级部门负责人 |
-| `dept_members` | 本部门成员 |
-| `dept_leader` | 部门负责人 |
+### 抄送类型及 JSON 结构
+
+数组中每个对象代表一类抄送人，可同时配置多种（取并集）：
+
+| type | 说明 | 必要附加字段 |
+|------|------|------------|
+| `candidateUsers` | 指定用户 | `userIds`（用户名数组）、`selectedUsers`（`[{value, label}]`） |
+| `candidateRoles` | 指定角色 | `roleIds`（角色编码数组）、`selectedRoles`（`[{value, label}]`） |
+| `candidateDeptPositions` | 指定岗位 | `deptPositionIds`（岗位ID数组）、`selectedDeptPositions`（`[{value, label}]`） |
+| `submitter_user` | 发起人本人 | 无 |
+| `submitter_dept_leader` | 发起人的部门负责人 | 无 |
+| `submitter_parent_dept_leader` | 发起人的上级部门负责人 | 无 |
+| `dept_members` | 发起人所在部门全体成员 | 无 |
+| `dept_leader` | 当前节点审批人的部门负责人 | 无 |
+
+### 完整 JSON 示例（解码前）
+
+```json
+[
+  {
+    "type": "candidateUsers",
+    "userIds": ["qinfeng"],
+    "selectedUsers": [{"value": "qinfeng", "label": "秦峰"}]
+  },
+  {
+    "type": "candidateRoles",
+    "roleIds": ["admin"],
+    "selectedRoles": [{"value": "admin", "label": "管理员"}]
+  },
+  {
+    "type": "candidateDeptPositions",
+    "deptPositionIds": ["1958497164103520258"],
+    "selectedDeptPositions": [{"value": "1958497164103520258", "label": "销售总监"}]
+  },
+  {"type": "submitter_user"},
+  {"type": "submitter_dept_leader"},
+  {"type": "submitter_parent_dept_leader"},
+  {"type": "dept_members"},
+  {"type": "dept_leader"}
+]
+```
+
+### Python 生成 ccConfigJson
+
+```python
+import json, base64
+
+cc_list = [
+    {
+        "type": "candidateUsers",
+        "userIds": ["qinfeng"],
+        "selectedUsers": [{"value": "qinfeng", "label": "秦峰"}]
+    },
+    {"type": "submitter_dept_leader"},
+]
+cc_b64 = base64.b64encode(
+    json.dumps(cc_list, ensure_ascii=False).encode('utf-8')
+).decode('utf-8')
+# 写入 XML：
+# <flowable:ccConfigJson value="{cc_b64}" />
+```
+
+### bpmn_creator.py 中的 ccConfig 配置（节点 JSON 字段）
+
+在 JSON 配置的节点中，通过 `ccConfig` 字段声明抄送人（脚本自动完成 base64 编码）：
+
+```json
+{
+  "id": "task_manager",
+  "type": "userTask",
+  "name": "经理审批",
+  "assignee": {"type": "role", "value": "manager"},
+  "ccConfig": [
+    {
+      "type": "candidateUsers",
+      "userIds": ["qinfeng"],
+      "selectedUsers": [{"value": "qinfeng", "label": "秦峰"}]
+    },
+    {"type": "submitter_dept_leader"},
+    {"type": "dept_leader"}
+  ]
+}
 
 ---
 
@@ -536,3 +608,132 @@ if (amount > 1000 && type == "purchase") {
 **方法：** DELETE
 
 **参数：** `id` - 流程实例ID
+
+---
+
+## 8. 信号节点（Signal Event）
+
+信号事件用于流程内（或跨流程）广播通知，所有监听同一信号的节点都会收到。
+
+> **参考 BPMN 文件：** `references/example/信号节点配置.bpmn`
+
+### 8.1 流程结构示意
+
+```
+开始 → 经理审批 → [抛出信号] → 总监审批 → 总经理审批 → 结束
+                                    ↓（边界捕获信号）
+                                 人力审批 → 结束
+```
+
+### 8.2 全局信号定义
+
+在 `<bpmn2:definitions>` 内（与 `<bpmn2:process>` 同级）定义信号：
+
+```xml
+<bpmn2:signal id="Signal_fYBEFz" name="xinhao" />
+```
+
+| 属性 | 说明 |
+|------|------|
+| `id` | 唯一标识符（XML 内引用用） |
+| `name` | 信号名称（业务标识，抛出/捕获匹配的是 name） |
+
+### 8.3 中间抛出信号事件（Intermediate Throw Event）
+
+```xml
+<bpmn2:intermediateThrowEvent id="Event_0pj4s1m" name="抛出信号">
+    <bpmn2:incoming>Flow_02jbxem</bpmn2:incoming>
+    <bpmn2:outgoing>Flow_1vw3ukw</bpmn2:outgoing>
+    <bpmn2:signalEventDefinition id="SignalEventDefinition_1mdlxx5"
+        flowable:signalRef="Signal_fYBEFz" />
+</bpmn2:intermediateThrowEvent>
+```
+
+- `flowable:signalRef`：引用 `<bpmn2:signal>` 的 `id`
+- 流程到达该节点时自动广播信号，随后继续向 outgoing 方向流转
+
+### 8.4 边界捕获信号事件（Boundary Signal Event）
+
+```xml
+<bpmn2:boundaryEvent id="Event_09vbiup" name="捕获信号"
+    attachedToRef="Task_036lygp">
+    <bpmn2:outgoing>Flow_05u00vg</bpmn2:outgoing>
+    <bpmn2:signalEventDefinition id="SignalEventDefinition_0lfql30"
+        flowable:signalRef="Signal_fYBEFz" />
+</bpmn2:boundaryEvent>
+```
+
+| 属性 | 说明 |
+|------|------|
+| `attachedToRef` | 绑定的任务节点 ID |
+| `flowable:signalRef` | 与抛出节点引用同一个信号 id |
+
+> 收到信号后，流程从边界事件的 outgoing 连线继续执行（通常中断原任务）。
+
+### 8.5 完整骨架示例
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn2:definitions ...>
+  <bpmn2:process id="process_xxx" name="信号示例">
+    <!-- 扩展监听器（固定配置） -->
+    <bpmn2:extensionElements>
+      <flowable:executionListener class="org.jeecg.modules.extbpm.listener.execution.ProcessEndListener" event="end" />
+      <flowable:eventListener class="org.jeecg.modules.listener.tasktip.TaskCreateGlobalListener" />
+    </bpmn2:extensionElements>
+
+    <bpmn2:startEvent id="start" name="开始" flowable:initiator="applyUserId">
+      <bpmn2:outgoing>f1</bpmn2:outgoing>
+    </bpmn2:startEvent>
+
+    <bpmn2:userTask id="task_manager" name="经理审批" flowable:assignee="admin">
+      <bpmn2:incoming>f1</bpmn2:incoming>
+      <bpmn2:outgoing>f2</bpmn2:outgoing>
+    </bpmn2:userTask>
+
+    <!-- 抛出信号 -->
+    <bpmn2:intermediateThrowEvent id="signal_throw" name="抛出信号">
+      <bpmn2:incoming>f2</bpmn2:incoming>
+      <bpmn2:outgoing>f3</bpmn2:outgoing>
+      <bpmn2:signalEventDefinition id="sed_throw" flowable:signalRef="Signal_xxx" />
+    </bpmn2:intermediateThrowEvent>
+
+    <bpmn2:userTask id="task_director" name="总监审批" flowable:assignee="admin">
+      <bpmn2:incoming>f3</bpmn2:incoming>
+      <bpmn2:outgoing>f4</bpmn2:outgoing>
+    </bpmn2:userTask>
+
+    <!-- 边界捕获信号（绑定到总监审批） -->
+    <bpmn2:boundaryEvent id="signal_catch" name="捕获信号" attachedToRef="task_director">
+      <bpmn2:outgoing>f5</bpmn2:outgoing>
+      <bpmn2:signalEventDefinition id="sed_catch" flowable:signalRef="Signal_xxx" />
+    </bpmn2:boundaryEvent>
+
+    <bpmn2:userTask id="task_hr" name="人力审批" flowable:assignee="admin">
+      <bpmn2:incoming>f5</bpmn2:incoming>
+      <bpmn2:outgoing>f6</bpmn2:outgoing>
+    </bpmn2:userTask>
+
+    <bpmn2:endEvent id="end1"><bpmn2:incoming>f4</bpmn2:incoming></bpmn2:endEvent>
+    <bpmn2:endEvent id="end2"><bpmn2:incoming>f6</bpmn2:incoming></bpmn2:endEvent>
+
+    <bpmn2:sequenceFlow id="f1" sourceRef="start" targetRef="task_manager" />
+    <bpmn2:sequenceFlow id="f2" sourceRef="task_manager" targetRef="signal_throw" />
+    <bpmn2:sequenceFlow id="f3" sourceRef="signal_throw" targetRef="task_director" />
+    <bpmn2:sequenceFlow id="f4" sourceRef="task_director" targetRef="end1" />
+    <bpmn2:sequenceFlow id="f5" sourceRef="signal_catch" targetRef="task_hr" />
+    <bpmn2:sequenceFlow id="f6" sourceRef="task_hr" targetRef="end2" />
+  </bpmn2:process>
+
+  <!-- 信号定义（与 process 同级） -->
+  <bpmn2:signal id="Signal_xxx" name="xinhao" />
+</bpmn2:definitions>
+```
+
+### 8.6 信号 vs 消息
+
+| 特性 | 信号（Signal） | 消息（Message） |
+|------|---------------|----------------|
+| 广播范围 | 全局广播，所有监听者都能收到 | 点对点，指定接收者 |
+| 定义位置 | `<bpmn2:signal>` 与 process 同级 | `<bpmn2:message>` 与 process 同级 |
+| 适用场景 | 跨节点/跨流程同时通知多方 | 流程间精确单向通信 |

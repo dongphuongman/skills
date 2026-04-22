@@ -10,7 +10,7 @@
 | GET | `/queryByCode?desformCode={code}` | 按编码查询单个表单（部分表单可能查不到，推荐用 queryByIdOrCode） |
 | GET | `/queryById?id={id}` | 按 ID 查询单个表单 |
 | GET | `/queryByIdOrCode?desformCode={code}` | **推荐**：按编码或 ID 查询，更可靠 |
-| GET | `/queryFormAndView?desformCode={code}` | 查询表单及其所有视图 |
+| GET | `/queryFormAndView?desformCode={code}` | 查询表单及其所有表单视图 |
 | GET | `/getColumns?desformCode={code}` | 获取表单的字段列表 |
 | GET | `/getAdaptCfg` | 获取数据适配器配置（SQL/MongoDB） |
 
@@ -35,12 +35,28 @@
 
 ### `/add` 请求体
 
+创建**表单**：
+
 ```json
 {
   "desformName": "表单名称",
   "desformCode": "form_code"
 }
 ```
+
+创建**表单视图**（`izView=1`，`izMobileView=0/1` 区分 PC/移动端）：
+
+```json
+{
+  "desformName": "视图名称",
+  "desformCode": "form_code",
+  "desformDesignJson": "{...}",
+  "izView": 1,
+  "izMobileView": 0
+}
+```
+
+> 表单视图与列表视图是两个独立概念：表单视图控制填报界面的字段布局；列表视图控制数据记录在列表页的展示方式（见 `list-view.md`）。
 
 ### `/edit` 请求体
 

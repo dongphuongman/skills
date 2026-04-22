@@ -4,15 +4,38 @@
 
 ## 方式一：静态选项（默认）
 
+**⚠️ `showLabel` 与 label 字段的关系（易错点）：**
+
+只有当 `showLabel: true` 时，options 数组中的 `label` 字段才会被渲染到页面上，否则前端只显示 `value`。
+
+| 场景 | 正确写法 |
+|------|---------|
+| value 与显示文本相同（直接用文字作为 value） | 字符串列表，`showLabel: false`（默认） |
+| value 与显示文本不同（如 value="1"，显示"一年级"） | dict 列表含 `label`，必须同时设 `showLabel: true` |
+
 ```json
+// ✅ value 即显示文本（如枚举中文选项）— showLabel 可为 false
 "options": {
   "remote": false,
+  "showLabel": false,
   "options": [
-    { "value": "选项1", "itemColor": "#2196F3" },
-    { "value": "选项2", "itemColor": "#08C9C9" }
+    { "value": "待审核", "itemColor": "#2196F3" },
+    { "value": "已通过", "itemColor": "#08C9C9" }
+  ]
+}
+
+// ✅ value 与 label 不同（如数字编码 + 中文描述）— 必须 showLabel: true
+"options": {
+  "remote": false,
+  "showLabel": true,
+  "options": [
+    { "value": "1", "label": "一年级", "itemColor": "#2196F3" },
+    { "value": "2", "label": "二年级", "itemColor": "#08C9C9" }
   ]
 }
 ```
+
+> **脚本自动处理**：通过 `desform_creator.py` 的 JSON 配置或 `RADIO`/`SELECT`/`CHECKBOX` 函数传入 `{value, label}` 格式时，脚本会自动检测并设置 `showLabel: true`，无需手动干预。手动构造 desformDesignJson 时需自行保证一致。
 
 ## 方式二：系统字典
 

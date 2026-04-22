@@ -27,8 +27,8 @@
   # 编辑字典项（按 itemText 匹配，修改为新名称，用 -> 分隔）
   python dict_tools.py --action edit-item --code leave_type --items "年假->全薪年假"
 
-环境变量（可覆盖默认值）：
-  JMREPORT_API   积木报表 API 地址，默认 http://127.0.0.1:8085/jmreport
+环境变量（必须设置）：
+  JMREPORT_API   积木报表 API 地址，如 http://192.168.1.x:8085/jmreport
   JMREPORT_TOKEN X-Access-Token
 """
 
@@ -38,8 +38,8 @@ import os
 import sys
 import requests
 
-DEFAULT_API  = os.environ.get("JMREPORT_API",   "http://127.0.0.1:8085/jmreport")
-DEFAULT_TOKEN = os.environ.get("JMREPORT_TOKEN", "3106fa73-93c6-4c48-aa77-96faff97fe67")
+DEFAULT_API  = os.environ.get("JMREPORT_API",   "<api_base>")
+DEFAULT_TOKEN = os.environ.get("JMREPORT_TOKEN", "<token>")
 
 
 class JmReportDictClient:

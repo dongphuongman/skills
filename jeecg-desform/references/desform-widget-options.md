@@ -159,6 +159,43 @@ className: `form-integer` | icon: `icon-integer`
 
 className: `form-money` | icon: `icon-money`
 
+## ⚠️ 选项颜色（itemColor）合法值约束
+
+**强制规则：** 所有控件（radio / select / checkbox）的 `itemColor` 字段，只能使用以下 20 个合法颜色值，禁止使用任何其他颜色（包括近似色）。这是前端硬编码的颜色表，传入范围外的值会导致颜色显示异常。
+
+| 色号 | 十六进制 | 文字色 | 预览 |
+|------|---------|--------|------|
+| 1 | `#2196F3` | 白色 | 蓝色 |
+| 2 | `#08C9C9` | 白色 | 青色 |
+| 3 | `#00C345` | 白色 | 绿色 |
+| 4 | `#FAD714` | 深色 | 黄色 |
+| 5 | `#FF9300` | 白色 | 橙色 |
+| 6 | `#F52222` | 白色 | 红色 |
+| 7 | `#EB2F96` | 白色 | 粉红 |
+| 8 | `#7500EA` | 白色 | 深紫 |
+| 9 | `#2D46C4` | 白色 | 深蓝 |
+| 10 | `#484848` | 白色 | 深灰 |
+| 11 | `#C9E6FC` | 深色 | 浅蓝 |
+| 12 | `#C3F2F2` | 深色 | 浅青 |
+| 13 | `#C2F1D2` | 深色 | 浅绿 |
+| 14 | `#FEF6C6` | 深色 | 浅黄 |
+| 15 | `#FFE5C2` | 深色 | 浅橙 |
+| 16 | `#FDCACA` | 深色 | 浅红 |
+| 17 | `#FACDE6` | 深色 | 浅粉 |
+| 18 | `#DEC2FA` | 深色 | 浅紫 |
+| 19 | `#CCD2F1` | 深色 | 浅靛 |
+| 20 | `#D3D3D3` | 深色 | 浅灰 |
+
+**常见错误示例（禁止使用）：**
+- `#FF9800` ❌ → 应为 `#FF9300`
+- `#9C27B0` ❌ → 应为 `#7500EA`
+- `#F44336` ❌ → 应为 `#F52222`
+- `#795548` ❌ → 无对应值，选最近似色
+
+**启用颜色时还需同时设置 `useColor: true`**，否则颜色配置对甘特图、看板视图等视图不生效。
+
+---
+
 ## radio — 单选框组
 
 ```json
@@ -850,16 +887,35 @@ className: `form-select-user` | icon: `icon-user-circle`
 
 `defaultLogin`：true 时默认填充当前登录用户（仅 add/preview 模式生效）
 
-**keyMaps[] 元素结构**（选择用户后自动回填其他字段）：
+**keyMaps[] 元素结构**（数据绑定映射，选择用户后自动回填其他字段）：
 
 ```json
 [
-  { "source": "realname", "target": "user_name_field_model" },
-  { "source": "orgCode", "target": "org_field_model" }
+  { "from": "realname", "to": "input_field_model" },
+  { "from": "orgCode",  "to": "any_field_name" }
 ]
 ```
 
-`source` 为用户属性名（realname/orgCode/phone/email 等），`target` 为本表其他字段的 model。选择用户后自动将 source 属性值回填到 target 字段。
+- `from`：用户对象的属性名（见下表）
+- `to`：回填目标，优先填本表其他字段的 model，也可填任意字段名（无需该字段存在）
+
+**用户组件 from 可用值：**
+
+| from 值         | 说明            | 示例值                           |
+|-----------------|-----------------|----------------------------------|
+| `id`            | 用户ID          | e9ca23d68d884d4ebb19d07889727dae |
+| `username`      | 用户名          | zhangsan                         |
+| `realname`      | 真实姓名        | 张三                             |
+| `avatar`        | 头像地址        | xxx.png                          |
+| `birthday`      | 生日            | 1990-7-11                        |
+| `sex`           | 性别(1=男 2=女) | 1                                |
+| `sex_dictText`  | 性别字典文本    | 男                               |
+| `email`         | 邮箱地址        | zhangsan@xx.com                  |
+| `phone`         | 电话号码        | 150xxxxxxxx                      |
+| `orgCode`       | 机构编码        | A001                             |
+| `status`        | 状态            | 1                                |
+| `status_dictText` | 状态字典文本  | 正常                             |
+| `createTime`    | 用户创建时间    | 2018-12-21 17:54:10              |
 
 ## select-depart — 部门组件
 
@@ -883,6 +939,37 @@ className: `form-select-user` | icon: `icon-user-circle`
 ```
 
 className: `form-select-depart` | icon: `icon-depart`
+
+**keyMaps[] 元素结构**（数据绑定映射，选择部门后自动回填其他字段）：
+
+```json
+[
+  { "from": "departName", "to": "input_field_model" },
+  { "from": "orgCode",    "to": "any_field_name" }
+]
+```
+
+- `from`：部门对象的属性名（见下表）
+- `to`：回填目标，优先填本表其他字段的 model，也可填任意字段名（无需该字段存在）
+
+**部门组件 from 可用值：**
+
+| from 值          | 说明                       | 示例值                           |
+|------------------|----------------------------|----------------------------------|
+| `id`             | 机构/部门ID                | c6d7cb4deeac411cb3384b1b31278596 |
+| `departName`     | 机构/部门名称              | 北京国炬信息技术有限公司         |
+| `departNameAbbr` | 缩写                       |                                  |
+| `departNameEn`   | 英文名                     |                                  |
+| `departOrder`    | 排序序号                   | 0                                |
+| `description`    | 描述                       |                                  |
+| `fax`            | 传真                       |                                  |
+| `memo`           | 备注                       |                                  |
+| `mobile`         | 手机号                     |                                  |
+| `address`        | 地址                       |                                  |
+| `orgCode`        | 机构编码                   | A01                              |
+| `orgType`        | 机构类型 1一级部门 2子部门 | 1                                |
+| `parentId`       | 父机构ID                   |                                  |
+| `createTime`     | 创建时间                   | 2019-02-11 14:21:51              |
 
 ## select-depart-post — 岗位组件
 
@@ -958,6 +1045,15 @@ className: `form-org-role` | icon: `icon-zuzhijuese`
 
 className: `form-select-tree` | icon: `icon-tree`
 
+**categoryCode 使用规则：**
+- 用户**已指定** categoryCode → 直接使用用户提供的值
+- 用户**未指定** categoryCode → 直接使用文档示例默认值 `"B02"`，**不要**查询系统分类、调用任何 API 或向用户询问
+
+**dataFrom=table 时 rootPid 踩坑（已验证）：**
+- `rootPid` 必须填该表中根节点的 **父字段实际存储值**，不能随意填 `"0"`
+- `sys_depart`：根节点 `parent_id` 为空字符串，因此 `rootPid` 必须填 `""`
+- 通用规则：不确定时填 `""`（表示顶级节点），**不要**默认填 `"0"`——填了不存在的值会导致树加载为空
+
 ## ocr — 文本识别
 
 ```json
@@ -1000,9 +1096,23 @@ className: `form-summary` | icon: `icon-sigma`
 | 字段 | 说明 |
 |------|------|
 | `linkTable` | 关联的子表 model（sub-table-design 控件的 model） |
-| `field` | 要汇总的子表列 model（如 `money_xxx`、`formula_xxx`），或内置值 `"inner-record-count"`（子表记录数） |
-| `summary` | 汇总类型：`"inner-sum"`（求和）、`"inner-avg"`（平均）、`"inner-max"`（最大）、`"inner-min"`（最小）；当 `field` 为 `"inner-record-count"` 时留空 |
+| `field` | 要汇总的子表列 model（如 `money_xxx`、`formula_xxx`） |
+| `summary` | 汇总类型，见下方完整列表 |
 | `filter` | 过滤条件，`enabled: true` 时仅对满足条件的子表行进行汇总 |
+
+**汇总类型完整列表：**
+
+| summary 值 | 说明 | 适用字段类型 |
+|------------|------|-------------|
+| `inner-sum` | 求和 | 数字/金额/公式 |
+| `inner-average` | 平均值 | 数字/金额/公式 |
+| `inner-max` | 最大值 | 数字/金额/公式 |
+| `inner-min` | 最小值 | 数字/金额/公式 |
+| `inner-record-count` | 记录数量 | 任意（统计子表行数） |
+| `inner-completed-count` | 已填计数 | 任意（统计已填写的行数） |
+| `inner-incompletely-count` | 未填计数 | 任意（统计未填写的行数） |
+| `inner-date-earliest` | 最早日期 | 日期 |
+| `inner-date-latest` | 最晚日期 | 日期 |
 
 **filter 子结构**：
 ```json
@@ -1010,16 +1120,25 @@ className: `form-summary` | icon: `icon-sigma`
   "enabled": true,
   "matchType": "AND",
   "rules": [
-    { "field": "子表字段model", "rule": "eq", "value": "过滤值" }
+    {"model": "子表字段model", "rule": "EQ", "valueType": "fixed", "value": ["固定值"]},
+    {"model": "子表字段model", "rule": "EQ", "valueType": "field", "value": ["另一字段model"]},
+    {"model": "子表字段model", "rule": "EMPTY", "valueType": "fixed", "value": []},
+    {"model": "子表字段model", "rule": "NOT_EMPTY", "valueType": "fixed", "value": []}
   ]
 }
 ```
 
+| 字段 | 说明 |
+|------|------|
+| `model` | 要过滤的子表字段 model |
+| `rule` | 比较规则，**必须大写**：`EQ`(等于)、`NE`(不等于)、`GT`(大于)、`GE`(大于等于)、`LT`(小于)、`LE`(小于等于)、`LIKE`(包含)、`EMPTY`(为空)、`NOT_EMPTY`(不为空) |
+| `valueType` | `fixed`=固定值，`field`=引用其他字段的 model |
+| `value` | **始终为数组**，如 `["A类"]`、`[233]`；`EMPTY`/`NOT_EMPTY` 时传 `[]` |
+| `matchType` | 多条规则的逻辑关系：`AND` 或 `OR` |
+
+> **脚本自动解析：** JSON 配置中 `model` 和 `value`（当 `valueType: "field"` 时）支持传入字段中文名，脚本会自动解析为实际 model。
+
 > **典型用法：** 主表需要显示子表某列的合计金额时，使用 `SUMMARY(name, sub_table_model, field_model, summary_type='inner-sum')`，不要用 `FORMULA`。
-
-### summary 日期变体
-
-在 `linkageComponents` 中还存在一个带 `isSummary: true` 标记的 date 控件变体，用于对日期类型字段的汇总。其 type 仍为 `date`，但通过 `isSummary` 标记与普通 date 区分。此变体在内部通过 `summaryTypeBefore` 常量 (`'__summary__'`) 进行识别。
 
 ## sub-table-design — 设计子表
 
@@ -1159,7 +1278,7 @@ className: `form-link-record` | icon: **`icon-link`**（注意：不是 `icon-li
 | 属性 | 说明 |
 |------|------|
 | `isSubTable` | 是否为子表模式（一对多），设为 `true` 时不需要 card 容器 |
-| `isSelf` | 是否为自关联（关联自身表单） |
+| `isSelf` | 是否为自关联（关联自身表单）；自关联树场景必须设为 `true`；使用 `LINK_RECORD(..., is_self=True)` 自动处理 |
 
 **options 字段说明：**
 
@@ -1292,8 +1411,20 @@ className: `form-dict` | icon: `icon-dict`
 | `style` | 展示方式：`"select"`（下拉模糊搜索）或 `"popup"`（弹窗选择） |
 | `dictTable` | 表名 |
 | `dictCode` | 存储字段（value） |
-| `dictText` | 显示字段（label） |
+| `dictText` | 显示字段（label）；**style=popup 时自动设为该控件自身或其他文本控件的 model** |
 | `filterable` | 是否可搜索（仅 style=select 时有效） |
-| `queryScope` | 查询作用域：`"cgreport"`（Online报表，默认）或 `"database"`（数据库表） |
+| `queryScope` | 查询作用域：`"cgreport"`（Online报表，默认）或 `"database"`（数据库表，**仅支持 style=select**） |
 | `showIcon` | 是否显示图标 |
 | `iconName` | 图标名（默认 `"icon-popup"`） |
+
+> **使用 table-dict 组件前必须完整阅读以下内容！** 错误配置会导致表单无法正常使用。
+
+**关键约束（已验证）：**
+- `dictTable`/`dictCode`/`dictText`/`queryScope` 必须放在 `options` 内部，**不是**顶层字段
+- `style=popup` 时，`dictText` 必须设为该控件自身或其他文本控件的 model（`desform_utils.py` 已自动处理，无需手动指定）
+- `queryScope=database` 时**不支持 `style=popup`**，只支持 `style=select`
+- `queryScope=cgreport` 时 `dictTable` 为 Online 报表编码，`dictCode`/`dictText` 为报表的字段名
+
+⚠️ **强制前提（不可跳过，不可替代）**：配置 `queryScope=cgreport` 或 `style=popup` 之前，**必须先调用 `jeecg-onlreport` skill** 查询系统中现有的报表编码和字段名。**禁止**尝试直接调用 API、猜测编码或跳过此步骤——报表编码是系统生成的，无法预知，填错会导致控件无法加载数据。在获取到真实编码之前，不要继续生成表单 JSON。
+
+> **踩坑记录**：cgform（Online 表单）和 cgreport（Online 报表）是**完全独立的两套系统**，不是同一体系下的子类型。AI 容易误以为 cgreport 只是 cgform 里 `tableType=2` 的一种，从而自行调用 cgform API 来"过滤出报表"——这是错误的，两套 API 路径和数据结构完全不同，自行调用 cgform API 查到的是 Online 表单数据，不是报表。查询 Online 报表**必须且只能**通过调用 `jeecg-onlreport` skill，优先使用其中的语法糖 `list_all_reports_table()` 和 `list_fields_by_code_table(code)` 完成查询，**禁止**绕过 skill 自行拼接 API 调用。

@@ -37,7 +37,7 @@ sys.path.insert(0, r'引用路径')
 from bi_utils import *
 import bi_utils
 
-init_api('http://192.168.1.66:8080/jeecg-boot', 'your-token')
+init_api('<api_base>', '<token>')
 PAGE_ID = '页面ID'
 
 page = query_page(PAGE_ID)

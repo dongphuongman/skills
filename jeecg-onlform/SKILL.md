@@ -61,8 +61,76 @@ references/
 1. **API 地址**：JeecgBoot 后端地址（如 `https://boot3.jeecg.com/jeecgboot`）
 2. **X-Access-Token**：JWT 登录令牌（从浏览器 F12 获取）
 
-如果用户未提供，提示：
-> 请提供 JeecgBoot 后端地址和 X-Access-Token（从浏览器 F12 → Network → 任意请求的 Request Headers 中复制）。
+## 执行效率规则（减少无谓等待）
+
+所有 HTTP 调用必须遵循，否则用户会感到响应明显变慢。**本节为强制要求，违反会直接被用户吐槽"太慢了"。**
+
+### 0. Windows 环境下**必须**用 PowerShell tool 跑 python（最容易踩的坑）
+
+**现象**：Windows 的 Bash tool 会把 `python` / `python -c` / skill 脚本当作长命令自动 `run_in_background`，tool 立即返回一个 background ID，真正的执行输出要等系统通知才到——把毫秒级调用放大到数秒，用户会立即感到"卡"。
+
+**规则**：
+- **Windows（platform=win32）** → 所有 python 调用（skill 脚本 + `python -c` 探测）都用 **PowerShell tool**，不要用 Bash tool。
+- **Linux / macOS（platform=linux/darwin）** → 用 Bash tool 即可，python 不会被后台化。
+- `curl` 在任何平台都不用——跨平台不一致，且 Windows Bash 下同样被后台化。
+
+**Windows 正确示例**：
+```
+PowerShell: python C:/path/to/onlform_creator.py --api-base http://localhost:8080 --token xxx --config config.json
+PowerShell: python -c "import urllib.request as u, json; r=u.urlopen(...); print(r.read().decode())"
+```
+
+**Windows 错误示例**（会被后台化）：
+```
+Bash: python onlform_creator.py ...       ← 会返回 "Command running in background"
+Bash: python -c "..."                     ← 同上
+Bash: curl -X POST ...                    ← 同上
+```
+
+> **历史教训**：本 skill 早期版本错误地声称"Python 在所有 shell 下都同步返回"——实测 Windows Bash tool 对 python 也会后台化。曾因此被用户连续吐槽"执行太慢了"。
+
+### 1. 优先用 skill 自带的 Python 脚本，不要自己另起 HTTP 封装
+
+skill 已提供 `onlform_creator.py` / `onlform_jimureport.py` 等脚本，它们封装了鉴权、重试、head 解析、主子表关联等细节。需要一次性 HTTP 探测再用 `python -c`。
+
+### 2. 跳过非必要前置检查，直接跑脚本
+
+- **表名查重**：仅在"用户暗示要复用已有表 / 表名看上去像已有资源"时才查。普通新建场景直接跑 `onlform_creator.py`——遇重名接口会返回明确错误，预查反而增加一次往返。
+- **字典存在性**：`sex`/`yn`/`sys_status` 等内置字典直接用，不必查。仅在字典编码明显是业务自定义且不确定是否创建过时才 `sys/dict/list` 查。
+- **link_table 引用表存在性**：这项仍然必须查（见 `references/onlform-field-types.md`），引用不存在的表会让创建成功但运行时报错，排查成本高。
+
+### 3. 并行多个 GET 检查时，一个 Python 调用里顺序打完，不要拆成多条 shell
+
+一次 tool call 拿到所有结果；拆成多条 shell 既有进程启动开销，在 Windows 下还会被后台化。
+```python
+# 用 PowerShell tool 跑
+python -c "
+import urllib.request as u, json
+h = {'X-Access-Token':'<token>'}; base = 'http://host'
+def g(p): return json.loads(u.urlopen(u.Request(base+p, headers=h), timeout=10).read())
+dup = g('/sys/duplicate/check?tableName=onl_cgform_head&fieldName=table_name&fieldVal=xxx')
+dct = g('/sys/dict/list?dictCode=xxx')
+print('dup=', dup.get('result'), '; dict.total=', dct.get('result', {}).get('total'))
+"
+```
+
+### 4. API base 确认（避免"路径不存在"返工）
+
+JeecgBoot 后端的 context path 因部署而异：
+- 较老版本 / 标准部署：`http://host:port/jeecg-boot`
+- 较新版本 / 根路径部署：`http://host:port`（无 `/jeecg-boot` 后缀）
+
+**首次不确定时**：直接按用户给的原样用。如果 `onlform_creator.py` 返回 `"路径不存在，请检查路径是否正确"`，去掉 `/jeecg-boot` 重试一次（或反之）——这个错误是确定性的，不要改别的参数。
+
+### 5. 建表遇到「数据库表 [xxx] 已存在」时的处理
+
+错误 `数据库表[xxx]已存在,请从数据库导入表单` 表示：**物理 DB 表残留，但 Online 配置不存在**（通常是之前创建后被手动删了 Online 头）。应对策略：
+
+1. **首选：换表名**（如 `order_main` → `sale_order`）——最快，避免污染现有物理表和数据。
+2. **次选：导入**：`GET /online/cgform/head/transTables/{tableName}` 把物理表导入为 Online 配置，再用 `action=edit` 调整字段。
+3. **慎用：删除物理表**（通过 DB 直连 DROP TABLE）——只在确认无数据且用户明确要求时做。
+
+> **主子表场景特别注意**：主表建失败后，子表如果已创建会成为"孤儿"（外键指向不存在的父表头）。此时必须先 `DELETE /online/cgform/head/delete?id={孤儿子表headId}` 删干净，再用新表名整体重建。不要在孤儿子表基础上继续操作。
 
 ## 主数据复用规则
 
@@ -99,9 +167,17 @@ references/
 - 提到"主子表/明细/一对多/订单+商品" → **主子表** (主表 tableType=2, 子表 tableType=3)，**默认使用 normal 风格**（不使用 erp），除非用户明确指定
 - 默认 → **单表** (tableType=1)
 
-**建表前查重（必须）：**
-调用 `GET /sys/duplicate/check?tableName=onl_cgform_head&fieldName=table_name&fieldVal={表名}` 检查表名是否已存在。
-——重复表名会导致 addAll 接口报错且难以排查，查重成本极低但能避免创建失败。
+> **创建前不要查重表名。** `addAll` 接口本身会校验并返回明确的重复提示，提前查重是多余的网络开销。
+>
+> **遇到重名错误（`数据库表[xxx]已存在`）时的处理规则：**
+>
+> | 当前操作 | 处理方式 |
+> |---------|---------|
+> | **新建表单**（用户意图是创建一个新表） | **自动加后缀重试**：`xxx` → `xxx_1` → `xxx_2` …，直到成功；执行成功后告知用户实际使用的表名 |
+> | **修改/编辑表单**（用户意图是改已有表） | 切换到 editAll 流程 |
+> | **导入数据库已有表** | 调用 `transTables/{tableName}` 导入 |
+>
+> ❌ **绝对不能删除已有表**（`DELETE /online/cgform/head/delete`）来"让位"给新建——这会丢失已有数据和配置。删除只能在用户**显式要求**删除时执行。
 
 **字典字段配置易错点（必须注意）：**
 - **下拉框/多选框/单选框/下拉多选/下拉搜索 这 5 种控件必须配置数据字典或表字典**，否则没有选项无法使用。生成字段配置时，遇到这 5 种控件必须同时配置 dictField（数据字典）或 dictTable+dictField+dictText（表字典）。
@@ -120,6 +196,13 @@ references/
 
 > **详细字段类型映射、字典配置、校验规则、默认值、扩展配置、特殊控件配置参见：**
 > `references/onlform-field-types.md`
+
+> **⚠️ link_table（关联记录）前置检查（必须执行）：**
+> 配置 `link_table` 字段时，`dictTable` 只能引用 **Online 管理的业务表**，不能是系统表。
+> 必须先调用 `GET /online/cgform/head/list?tableName={表名}&pageNo=1&pageSize=1` 验证被关联表是否存在。
+> - 若不存在 → 先创建该 Online 表并同步数据库，再插入至少 3 条示例数据，然后再配置 link_table 字段。
+> - 若已存在 → 直接配置。
+> 详细说明见 `references/onlform-field-types.md` 的 `link_table` 小节。
 
 核心映射速查：
 
@@ -288,7 +371,10 @@ python <skill目录>/scripts/onlform_data.py --api-base <URL> --token <TOKEN> --
 | [onlform-api-reference.md](references/onlform-api-reference.md) | 需要查看addAll完整请求体模板、head字段枚举、系统默认字段时 |
 | [onlform-route-cache.md](references/onlform-route-cache.md) | 用户要求开启Online表单路由缓存(keepAlive)、配置菜单组件名称、或询问动态/静态路由配置时 |
 
-### Step 12: 菜单挂载 + 路由缓存
+### Step 12: 菜单挂载 + 路由缓存（**可选 · 不自动执行**）
+
+> **本步骤非必须。** 表单/流程创建完成后**不要**默认执行菜单挂载。先用一句话询问用户："是否需要挂载到菜单？" 用户明确确认后再执行。
+> 用户可以直接通过预览 URL 访问表单，或自行在系统设置中挂载。演示环境账号通常无菜单创建权限，强行执行会失败。
 
 **使用 `scripts/onlform_menu.py`：**
 

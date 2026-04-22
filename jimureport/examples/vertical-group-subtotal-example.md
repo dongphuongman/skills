@@ -81,8 +81,35 @@ jsonStr 顶层需要两个属性：
 | `text` | `#{dbCode.group(fieldName)}` | 分组绑定语法，自动合并相同值的单元格 |
 | `aggregate` | `"group"` | 标记为分组聚合列 |
 | `subtotal` | `"groupField"` | 启用小计行 |
-| `funcname` | `"-1"` | 小计函数：`"-1"`=不计算（仅显示文本），可选 `"SUM"` `"AVG"` `"COUNT"` 等 |
+| `funcname` | `"-1"` | 小计函数，见下表 |
 | `subtotalText` | `"合计"` / `"小计"` | 小计行显示的文本 |
+
+### funcname 聚合函数对照表（分组列与聚合列通用）
+
+| 用户需求 | funcname 值 | 说明 |
+|---------|------------|------|
+| 不计算，仅显示文本 | `"-1"` | 分组列固定用此值 |
+| 合计 / 求和 | `"SUM"` | |
+| 平均 / 平均值 | `"AVERAGE"` | ⚠️ 不是 `"AVG"` |
+| 最大值 | `"MAX"` | |
+| 最小值 | `"MIN"` | |
+| 计数 | `"COUNT"` | |
+
+### 聚合列（非分组列）完整格式
+
+```json
+{
+    "text": "#{dbCode.fieldName}",
+    "style": 3,
+    "aggregate": "select",
+    "subtotal": "-1",
+    "funcname": "AVERAGE",
+    "subtotalText": "班级平均分",
+    "sort": "asc"
+}
+```
+
+> ⚠️ 聚合列用 `aggregate:"select"` + `subtotal:"-1"`，**分组列**才用 `aggregate:"group"` + `subtotal:"groupField"`，不可混用。
 
 ### 4. 分组绑定语法
 

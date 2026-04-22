@@ -28,13 +28,14 @@
 
 **依赖文件：**
 ```bash
+# <skill_base_dir> = skill 加载时显示的 Base directory for this skill（Windows 路径，Git Bash 下需转为 /c/Users/... 格式）
 # 步骤1 只需
-cp "C:/Users/25067/.claude/skills/jimubi-bigscreen/references/scripts/datasource_ops.py" .
-cp "C:/Users/25067/.claude/skills/jimubi-bigscreen/references/bi_utils.py" .
+cp "<skill_base_dir>/references/scripts/datasource_ops.py" .
+cp "<skill_base_dir>/references/bi_utils.py" .
 
 # 步骤3+4 还需
-cp "C:/Users/25067/.claude/skills/jimubi-bigscreen/references/scripts/comp_ops.py" .
-cp "C:/Users/25067/.claude/skills/jimubi-bigscreen/references/scripts/default_configs.json" .
+cp "<skill_base_dir>/references/scripts/comp_ops.py" .
+cp "<skill_base_dir>/references/scripts/default_configs.json" .
 
 # 执行完成后统一清理
 rm datasource_ops.py comp_ops.py bi_utils.py default_configs.json
@@ -61,7 +62,7 @@ py datasource_ops.py create "$API_BASE" "$TOKEN" \
   --name "数据源名称" \
   --code "datasource_code" \
   --db-type SQLSERVER \
-  --host "192.168.1.188" \
+  --host "<db_host>" \
   --port 1433 \
   --db "数据库名" \
   --user "用户名" \
@@ -75,7 +76,7 @@ py datasource_ops.py create "$API_BASE" "$TOKEN" \
 py datasource_ops.py create "$API_BASE" "$TOKEN" \
   --name "大屏统计库" --code "bigscreen_stat" \
   --db-type SQLSERVER \
-  --host "192.168.1.188" --port 1433 --db "jeecgbootbpm" \
+  --host "<db_host>" --port 1433 --db "jeecgbootbpm" \
   --user "jeecgbootbpm" --password "jeecgboot@2023"
 # 脚本自动在 JDBC URL 中追加 trustServerCertificate=true
 ```
@@ -85,7 +86,7 @@ py datasource_ops.py create "$API_BASE" "$TOKEN" \
 py datasource_ops.py create "$API_BASE" "$TOKEN" \
   --name "业务数据库" --code "biz_db" \
   --db-type MYSQL5.7 \
-  --host "192.168.1.66" --port 3306 --db "jeecg-boot" \
+  --host "<db_host>" --port 3306 --db "jeecg-boot" \
   --user "root" --password "root"
 ```
 
@@ -94,7 +95,7 @@ py datasource_ops.py create "$API_BASE" "$TOKEN" \
 py datasource_ops.py create "$API_BASE" "$TOKEN" \
   --name "PG数据库" --code "pg_db" \
   --db-type POSTGRESQL \
-  --host "192.168.1.100" --port 5432 --db "mydb" \
+  --host "<db_host>" --port 5432 --db "mydb" \
   --user "postgres" --password "postgres"
 ```
 
@@ -135,10 +136,8 @@ py datasource_ops.py create "$API_BASE" "$TOKEN" \
 **直接调 API 创建的完整流程（三步）：**
 
 ```python
-import sys
-sys.path.insert(0, '/c/Users/25067')
 import bi_utils
-bi_utils.API_BASE = 'http://192.168.1.66:8080/jeecg-boot'
+bi_utils.API_BASE = '<api_base>'
 bi_utils.TOKEN = 'TOKEN'
 
 # 第1步：创建（result 直接是字符串 ID，不是对象）
@@ -184,7 +183,7 @@ print('连接测试:', t.get('message'))  # 数据库连接成功
   名称: 大屏统计库
   编码: bigscreen_stat
   类型: SQLSERVER
-  JDBC: jdbc:sqlserver://192.168.1.188:1433;...
+  JDBC: jdbc:sqlserver://<db_host>:1433;...
 ```
 
 > `datasource_ops.py create` 的 `result` 返回值是数据源 ID 字符串（不是对象）
@@ -244,7 +243,7 @@ py comp_ops.py add "$API_BASE" "$TOKEN" "$PAGE_ID" \
 ### 实际案例：统计每日大屏创建数量
 
 ```bash
-py comp_ops.py add "http://192.168.1.66:8080/jeecg-boot" "$TOKEN" "1189831741968883712" \
+py comp_ops.py add "<api_base>" "$TOKEN" "1189831741968883712" \
   --comp "JBar" \
   --title "每日大屏创建数量" \
   --x 50 --y 100 --w 900 --h 450 \

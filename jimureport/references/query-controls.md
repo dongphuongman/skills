@@ -315,8 +315,8 @@ for text, sort in items:
 **extJson 配置（含穿透回显）：**
 ```json
 {
-    "loadTree": "http://192.168.1.6:8085/jmreport/test/getCategoryTree",
-    "loadTreeByValue": "http://192.168.1.6:8085/jmreport/test/getCategoryTreeByValue",
+    "loadTree": "<api_base>/test/getCategoryTree",
+    "loadTreeByValue": "<api_base>/test/getCategoryTreeByValue",
     "treeMultiple": false
 }
 ```
@@ -392,7 +392,7 @@ for text, sort in items:
 
 ```javascript
 function init(){
-  var apiBase = 'http://192.168.1.6:8085/jmreport/test/getAreaList';
+  var apiBase = '<api_base>/test/getAreaList';
 
   // 加载省份
   $http.metaGet(apiBase)
