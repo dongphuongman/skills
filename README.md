@@ -101,6 +101,10 @@
 
 ## 安装 Skills 技能
 
+> **前置依赖**：本技能集合依赖 **Python** 运行环境（部分 Skill 通过 Python 脚本调用后端 API），**建议安装 Python 3.12 版本**。
+> 安装后请确保 `python` 或 `python3` 命令在终端可用（`python --version` 能正常输出版本号）。
+> 下载地址：[https://www.python.org/downloads/](https://www.python.org/downloads/)
+
 将需要的 Skill 目录复制到 Claude Code 的 skills 目录：
 
 ```bash
