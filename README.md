@@ -9,72 +9,49 @@
 
 
 
-## Jeecg Skills 落地 AI开发工具推荐
+## 🚀 一键安装（推荐）
 
-**方案一：Claude Code + 官方会员**
+> **Claude Code + DeepSeek v4 一键全栈方案** — 国内镜像加速、**无需翻墙**、跑完即用。
 
-✅ 最佳选择。能力完整，所有 skills 功能都能正常使用。
+一行命令自动装齐 `Node.js · Python · Git · Claude Code · JEECG Skills`，并写入 DeepSeek v4 作为模型后端。
 
-> **前提条件**：需要解决 Claude 官方账号注册、会员订阅及网络访问问题。
+### Windows（PowerShell）
 
-**方案二：Claude Code + deepseek-v4-pro**
-
-✅ Skills 支持很好，国内可直接访问，无需网络处理。
-
-> **前提条件**：需要 DeepSeek 开放平台账号， [DeepSeek Platform](https://platform.deepseek.com)
-
-<details>
-<summary><b>Claude Code settings.json 配置（点击展开）</b></summary>
-
-将以下配置添加到 Claude Code 的 `settings.json` 中：
-
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
-    "ANTHROPIC_AUTH_TOKEN": "${DEEPSEEK_API_KEY}",
-    "API_TIMEOUT_MS": "3000000",
-    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
-    "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1m]",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro[1m]",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-pro[1m]",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "github@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "gopls-lsp@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true
-  },
-  "autoUpdatesChannel": "latest",
-  "skipDangerousModePermissionPrompt": true,
-  "model": "deepseek-v4-pro"
-}
+```powershell
+irm https://www.qiaoqiaoyun.com/claude/boot.ps1 | iex
 ```
 
-</details>
+> 请在 **PowerShell（建议管理员）** 中执行。若提示脚本被禁，先运行：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
-**方案三：Claude Code + MiniMax 2.7**
+### macOS / Linux（Bash / Zsh）
 
-⚠️ 勉强可用。这是无法访问官方模型的无奈选择，能力差距较大，部分 skills 功能会缺失或体验不佳。
+```bash
+curl -fsSL https://www.qiaoqiaoyun.com/claude/install-claude-code.sh | bash
+```
 
-> **前提条件**：需要MiniMax AI 开放平台账号， [社区专属9折订阅](https://platform.minimaxi.com/subscribe/token-plan?code=4sOp1aM1Qh&source=link)
+> 如需 root 权限，前缀加 `sudo`。
 
+### 安装内容
 
-**结论**
+- **Node.js 22 LTS · Python 3.12 · Git · Claude Code · JEECG Skills 全量**（华为云 / npmmirror 国内镜像加速）
+- 克隆 [gitee.com/jeecg/skills](https://gitee.com/jeecg/skills) 到 `~/.claude/skills/`（已存在则自动 `git pull` 增量更新）
+- 写入用户级环境变量 `ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL=deepseek-v4-pro`
+- 幂等运行，重复跑只补缺；重装/换 Key 用 `--force`
 
-优先使用方案一或方案二，方案三为国内无法访问官方时的备选。
+> ⚠️ DeepSeek 按 token 计费，需自备 API Key：[DeepSeek 开放平台 申请 API Key](https://platform.deepseek.com/api_keys)
 
-**相关文档：**
-- [Claude Code 下载与安装](https://code.claude.com/docs/zh-CN/quickstart)
-- [Claude Code接入Deepseek4(方案二)](https://api-docs.deepseek.com/zh-cn/guides/coding_agents)
-- [MiniMax API 配置 (方案三)](https://platform.minimaxi.com/docs/api-reference/text-anthropic-api)
+### 安装完成
+
+```bash
+claude
+> 帮我生成一个订单管理功能
+```
+
+Windows 安装完成后请**新开一个 PowerShell 窗口**，环境变量才会生效；Linux/macOS 执行 `source ~/.bashrc && claude`。
+
+> 💡 **已经装了 Claude Code？** 跳到本文末尾的 [手工安装 Skills](#手工安装-skills-技能) 段落，只追加 Skills 目录。
+
+---
 
 ## 功能清单
 
@@ -99,13 +76,25 @@
 
 
 
-## 安装 Skills 技能
+## 手工安装 Skills 技能
 
-> **前置依赖**：本技能集合依赖 **Python** 运行环境（部分 Skill 通过 Python 脚本调用后端 API），**建议安装 Python 3.12 版本**。
-> 安装后请确保 `python` 或 `python3` 命令在终端可用（`python --version` 能正常输出版本号）。
-> 下载地址：[https://www.python.org/downloads/](https://www.python.org/downloads/)
+> 已经在用 Claude Code 的用户，可以**不跑一键脚本**，直接把 Skills 仓库克隆到 `~/.claude/skills`。
 
-将需要的 Skill 目录复制到 Claude Code 的 skills 目录：
+### 一行 git clone（推荐）
+
+```bash
+git clone https://github.com/jeecgboot/skills.git ~/.claude/skills
+```
+
+已存在则增量更新：
+
+```bash
+cd ~/.claude/skills && git pull
+```
+
+### 只装部分 Skill（局部复制）
+
+将所需的 Skill 目录复制到 Claude Code 的 skills 目录：
 
 ```bash
 # macOS / Linux
@@ -117,7 +106,12 @@ xcopy jeecg-codegen %USERPROFILE%\.claude\skills\jeecg-codegen\ /E /I
 xcopy jimureport %USERPROFILE%\.claude\skills\jimureport\ /E /I
 ```
 
-安装后需要根据实际项目修改 Skill 中的路径和数据库连接配置，具体见各 Skill 的 SKILL.md。
+### 前置依赖
+
+- **Python 3.12+**（部分 Skill 通过 Python 脚本调用后端 API），下载：[python.org/downloads](https://www.python.org/downloads/)
+- 安装后请确保 `python` / `python3` 命令在终端可用（`python --version`）
+
+安装后需要根据实际项目修改 Skill 中的路径和数据库连接配置，具体见各 Skill 的 `SKILL.md`。
 
 
 ## 技能详情
