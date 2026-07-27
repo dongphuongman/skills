@@ -40,10 +40,10 @@
         {
           "dbFieldName": "flink_table", "dbFieldTxt": "关联记录", "fieldShowType": "link_table",
           "dbType": "string", "dbLength": 200,
-          "dictTable": "user_info", "dictField": "id", "dictText": "user_code,phone",
+          "dictTable": "test_demo", "dictField": "id", "dictText": "name,sex",
           "fieldExtendJson": "{\"showType\":\"card\",\"multiSelect\":false,\"imageField\":\"\"}"
         },
-        {"dbFieldName": "flink_field", "dbFieldTxt": "他表字段",   "fieldShowType": "link_table_field","dbType": "string",  "dbLength": 32,  "dictTable": "flink_table", "dictField": "", "dictText": "user_code", "dbIsPersist": "0"},
+        {"dbFieldName": "flink_field", "dbFieldTxt": "他表字段",   "fieldShowType": "link_table_field","dbType": "string",  "dbLength": 32,  "dictTable": "flink_table", "dictField": "", "dictText": "name", "dbIsPersist": "0"},
         {
           "dbFieldName": "flink_down", "dbFieldTxt": "联动下拉父", "fieldShowType": "link_down",
           "dbType": "string", "dbLength": 255,
@@ -81,10 +81,10 @@
         {
           "dbFieldName": "dlink_table", "dbFieldTxt": "关联记录", "fieldShowType": "link_table",
           "dbType": "string", "dbLength": 200,
-          "dictTable": "user_info", "dictField": "id", "dictText": "user_code,phone",
+          "dictTable": "test_demo", "dictField": "id", "dictText": "name,sex",
           "fieldExtendJson": "{\"showType\":\"card\",\"multiSelect\":false,\"imageField\":\"\"}"
         },
-        {"dbFieldName": "dlink_field", "dbFieldTxt": "他表字段",   "fieldShowType": "link_table_field","dbType": "string","dbLength": 32, "dictTable": "dlink_table", "dictField": "", "dictText": "user_code", "dbIsPersist": "0"},
+        {"dbFieldName": "dlink_field", "dbFieldTxt": "他表字段",   "fieldShowType": "link_table_field","dbType": "string","dbLength": 32, "dictTable": "dlink_table", "dictField": "", "dictText": "name", "dbIsPersist": "0"},
         {"dbFieldName": "dsel_depart", "dbFieldTxt": "部门选择",   "fieldShowType": "sel_depart", "dbType": "string",   "dbLength": 100},
         {"dbFieldName": "dsel_user",   "dbFieldTxt": "用户选择",   "fieldShowType": "sel_user",   "dbType": "string",   "dbLength": 100},
         {"dbFieldName": "dpca",        "dbFieldTxt": "省市区",     "fieldShowType": "pca",        "dbType": "string",   "dbLength": 100},
@@ -119,10 +119,10 @@
         {
           "dbFieldName": "elink_table", "dbFieldTxt": "关联记录", "fieldShowType": "link_table",
           "dbType": "string", "dbLength": 200,
-          "dictTable": "user_info", "dictField": "id", "dictText": "user_code,phone",
+          "dictTable": "test_demo", "dictField": "id", "dictText": "name,sex",
           "fieldExtendJson": "{\"showType\":\"card\",\"multiSelect\":false,\"imageField\":\"\"}"
         },
-        {"dbFieldName": "elink_field", "dbFieldTxt": "他表字段",   "fieldShowType": "link_table_field","dbType": "string","dbLength": 32, "dictTable": "elink_table", "dictField": "", "dictText": "user_code", "dbIsPersist": "0"},
+        {"dbFieldName": "elink_field", "dbFieldTxt": "他表字段",   "fieldShowType": "link_table_field","dbType": "string","dbLength": 32, "dictTable": "elink_table", "dictField": "", "dictText": "name", "dbIsPersist": "0"},
         {"dbFieldName": "esel_depart", "dbFieldTxt": "部门选择",   "fieldShowType": "sel_depart", "dbType": "string",   "dbLength": 100},
         {"dbFieldName": "esel_user",   "dbFieldTxt": "用户选择",   "fieldShowType": "sel_user",   "dbType": "string",   "dbLength": 100},
         {"dbFieldName": "epca",        "dbFieldTxt": "省市区",     "fieldShowType": "pca",        "dbType": "string",   "dbLength": 100},

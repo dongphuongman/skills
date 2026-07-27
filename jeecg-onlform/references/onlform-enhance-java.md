@@ -54,6 +54,20 @@
 
 > `CgformEnhanceJavaInter.execute` 返回值是 **`void`**，写成 `int` 会编译报错。
 
+## 必须的 import 语句
+
+```java
+// 表单增强（add/edit/delete）
+import org.jeecg.modules.online.cgform.enhance.CgformEnhanceJavaInter;
+
+// 列表增强（query/export）
+import org.jeecg.modules.online.cgform.enhance.CgformEnhanceJavaListInter;
+
+// 导入增强（import）
+import org.jeecg.modules.online.cgform.enhance.CgformEnhanceJavaImportInter;
+import org.jeecg.modules.online.cgform.enums.EnhanceDataEnum;  // ⚠️ 注意是 enums 不是 enhance
+```
+
 ## 导入增强返回值
 
 | 枚举值 | 说明 |

@@ -307,7 +307,7 @@ def create_report(api_base: str, token: str, config: dict) -> None:
         "tableIndex": i + 1, "extJson": "", "dictCode": ""
     } for i, f in enumerate(fields)]
 
-    ds_api_url = "{{ domainURL }}/online/cgform/api/data/" + table_name + "/queryById?id=${id}&token=${token}&mock=true"
+    ds_api_url = "{{ domainURL }}/online/cgform/api/data/" + table_name + "/queryByIdForJmReport?id=${id}&token=${token}&mock=true"
     save_db_data = {
         "izSharedSource": 0, "jimuReportId": report_id,
         "dbCode": db_code, "dbChName": report_name,

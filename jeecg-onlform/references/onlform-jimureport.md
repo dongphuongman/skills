@@ -14,7 +14,7 @@ Online 表单可关联积木报表实现打印功能，配置步骤：
 **第一步：配置积木报表**
 1. 在积木报表设计器中添加 **API 数据集**，API 地址固定格式：
 ```
-{{ domainURL }}/online/cgform/api/data/{tableName}/queryById?id=${id}&token=${token}&mock=true
+{{ domainURL }}/online/cgform/api/data/{tableName}/queryByIdForJmReport?id=${id}&token=${token}&mock=true
 ```
 - `{tableName}` 替换为 Online 表名
 - `{{ domainURL }}` 是域名变量（固定不改），外网可替换为真实地址如 `http://localhost:8080/jeecg-boot`
@@ -101,7 +101,7 @@ body 完整参数结构（**不可省略任何顶层字段**）：
   "apiConvert": "",
   "isList": "1",
   "isPage": "0",
-  "apiUrl": "{{ domainURL }}/online/cgform/api/data/{tableName}/queryById?id=${id}&token=${token}&mock=true",
+  "apiUrl": "{{ domainURL }}/online/cgform/api/data/{tableName}/queryByIdForJmReport?id=${id}&token=${token}&mock=true",
   "apiMethod": "0",
   "fieldList": [
     {"fieldName": "字段名", "fieldText": "字段名", "widgetType": "String", "isShow": true, "orderNum": 0, "tableIndex": 0, "extJson": "", "dictCode": ""}

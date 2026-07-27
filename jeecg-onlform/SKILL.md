@@ -98,6 +98,27 @@ Bash: curl -X POST ...                    ← 同上
 
 > **历史教训**：本 skill 早期版本错误地声称"Python 在所有 shell 下都同步返回"——实测 Windows Bash tool 对 python 也会后台化。曾因此被用户连续吐槽"执行太慢了"。
 
+### 0.1. 🔴 Bash 会吃掉 `$` 字符（字段默认值/fieldHref 的天坑）
+
+**现象**：`fieldDefaultValue`（如 `${order_num_rule}`、`#{sysUserId}`）和 `fieldHref`（如 `?name=${name_required}`）中含 `$`，用 Bash `python -c "..."` 执行时，shell 会把 `${xxx}` 当作变量展开——`xxx` 不是 shell 变量就变成空字符串，写入值残缺（如 `?name=` 丢了变量名）。
+
+**根因**：Bash 在解析双引号字符串时优先展开 `${...}`，即使它在 Python 字符串字面量内。
+
+**规则**：
+- **字段配置含 `$` 时，禁止用 `python -c "..."` inline 执行**（Bash 和 PowerShell 都不安全——PowerShell 虽不展开 `${}`，但会展开 `${}` 在某些场景下仍出问题）。
+- **正确做法**：始终走 Write 工具写 `.py` 临时文件 → Bash/PowerShell 执行 `.py` 文件。文件内容不被 shell 解析，`$` 安全。
+- **历史记录中已有的反例**：
+  - `${order_num_rule}` → bash 报 `order_num_rule_param: onl_watch=text_pure: command not found`
+  - `${name_required}` → 后端收到的值变成 `?name=`（变量被吃）
+
+**正确示例**（Write → Execute）：
+```
+Write: C:\Users\zhang\AppData\Local\Temp\onl_create_xxx.py   ← 含 $ 的配置写进 .py
+Bash:  python "C:\Users\zhang\AppData\Local\Temp\onl_create_xxx.py"
+```
+
+> **历史教训**：`${name_required}` 被 bash 截断为 `?name=`，用户发现后质疑 skill 有缺陷。实际是 shell 行为，不是 Python/后端的问题。此后所有含 `$` 的字段配置一律走文件。
+
 > **Windows 中文编码规则（`python -c` 必须加 `-X utf8`）**：
 > PowerShell 默认编码为 UTF-16 LE，`python -c "..."` inline 代码中含中文字面量时，shell 传参过程会乱码，导致 `SyntaxError: unterminated string literal`。
 > - **解法**：始终用 `python -X utf8 -c "..."` 而不是 `python -c "..."`
@@ -437,6 +458,8 @@ with open(config_path, 'w', encoding='utf-8') as f:
 - 提到"主子表/明细/一对多/订单+商品" → **主子表** (主表 tableType=2, 子表 tableType=3)，**默认使用 normal 风格**（不使用 erp），除非用户明确指定
 - 默认 → **单表** (tableType=1)
 
+> 🔴 **多数据源原则**：用户不提多数据源 → 不设 `dbSource` → 不追加 `enableMultiDataSource` → 默认主库。仅用户**明确说**"多数据源/数据源编码xxx/指定数据源"时才配置。
+
 > **使用全控件模板（all_controls_master_sub.json）时：** 读取模板作为结构参考，但表名（tableName/tableTxt）必须根据用户的业务描述重新命名，不能使用模板中的占位符表名。
 
 > **创建前不要查重表名。** `addAll` 接口本身会校验并返回明确的重复提示，提前查重是多余的网络开销。
@@ -552,12 +575,15 @@ python <skill目录>/scripts/onlform_creator.py --api-base <URL> --token <TOKEN>
     "tableName": "leave_application",
     "tableTxt": "请假申请表",
     "tableType": 1,
+    "dbSource": "",
     "fields": [
       {"dbFieldName": "name", "dbFieldTxt": "姓名", "fieldShowType": "text", "dbType": "string", "dbLength": 100, "fieldMustInput": "1", "isQuery": 1}
     ]
   }]
 }
 ```
+
+> **多数据源配置**：`dbSource` 是 `onl_cgform_head` 的直接字段（非 extConfigJson），填 `sys_data_source.code`。配置 `dbSource` 后脚本自动在 `extConfigJson` 中设置 `enableMultiDataSource: 1`，前端「开启多数据源」开关自动勾选、「选择数据源」下拉自动选中。子表不需要设置 `dbSource`，自动跟随主表。
 
 **编辑表单 JSON 示例：**
 ```json
@@ -614,6 +640,10 @@ python <skill目录>/scripts/onlform_enhance.py --api-base <URL> --token <TOKEN>
 - `query` — 查询所有增强配置
 
 > **增强参考（按需读对应文件）：** JS增强 → `references/onlform-enhance-js.md`；Java增强 → `references/onlform-enhance-java.md`；SQL/按钮 → `references/onlform-enhance-misc.md`
+>
+> **⚠️ 保存增强前必须先 GET 现有内容再合并，禁止直接 PUT 覆盖！**
+> 历史教训：给 `js_enhance_demo_20260702_1` 保存 list JS 增强时，直接 PUT 覆盖了整个 `cgJs` 字段，导致之前的 JS 代码丢失且无法恢复（API 无版本历史）。
+> 正确流程：`GET /online/cgform/head/enhanceJs/{headId}?type=list` → 取出 `result.cgJs` → 与新增代码拼接 → PUT 全量保存（含旧+新）。Java/SQL 增强同理。
 
 ### Step 10: 权限配置
 

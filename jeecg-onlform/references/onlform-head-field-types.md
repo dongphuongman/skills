@@ -18,6 +18,8 @@ Online 表单 head 配置中部分字段的值类型容易搞错：
 | 表单列数 | `formTemplate` | `"1"` / `"2"` / `"3"` / `"4"` | `tabOrderNum` |
 | 滚动条 | `scroll` | `0`(无滚动) / `1`(有滚动) | — |
 | 表描述 | `tableTxt` | 字符串 | — |
+| **多数据源编码** | `dbSource` | `sys_data_source.code`（如 `mysql11`），非 extConfigJson | 默认 `""` |
+| **开启多数据源** | `enableMultiDataSource` | extConfigJson 字段，`0`=关闭 / `1`=开启 | 配合 `dbSource` 使用 |
 | 主题模板 | `themeTemplate` | `"normal"` / `"tab"` / `"erp"` / `"innerTable"` | — |
 
 注意：`tabOrderNum` 是子表排序号（子表在 TAB 中的显示顺序），不是表单列数。

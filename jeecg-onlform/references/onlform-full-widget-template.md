@@ -43,8 +43,9 @@ type: feedback
 
 ## 关键注意事项
 
-1. **popup/popup_dict 的 dictTable 是 Online 报表编码，不是数据库表名**
-2. **checkbox/list/radio 等用数据字典或表字典，不用 fieldExtendJson options**
-3. **link_down 只有第一个字段配 link_down，后续级联字段用 text**
-4. **cat_tree 插入数据前要先查节点 ID：rootList → loadTreeData**
-5. **数据字典 = 系统字典**，对应菜单【系统管理】→【数据字典】
+1. **字段名不能以单字母+下划线开头**（正则 `/^[a-zA-Z]{1}(?!_)/`）。`f_text` ❌ → `fc_text` ✅；`f_num` ❌ → `fnum` ✅。下划线前至少 2 个字母。
+2. **popup/popup_dict 的 dictTable 是 Online 报表编码，不是数据库表名**
+3. **checkbox/list/radio 等用数据字典或表字典，不用 fieldExtendJson options**
+4. **link_down 只有第一个字段配 link_down，后续级联字段用 text**
+5. **cat_tree 插入数据前要先查节点 ID：rootList → loadTreeData**
+6. **数据字典 = 系统字典**，对应菜单【系统管理】→【数据字典】

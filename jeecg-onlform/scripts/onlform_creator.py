@@ -231,9 +231,32 @@ def make_ext_config():
     }, ensure_ascii=False)
 
 
-def build_fields_from_config(field_configs):
-    """从配置列表构建字段数组（含系统字段）"""
+def _build_ext_config(table_config):
+    """构建 extConfigJson，如果配置了 dbSource 则自动开启多数据源"""
+    if table_config.get('extConfigJson'):
+        base = json.loads(table_config['extConfigJson'])
+    else:
+        base = json.loads(make_ext_config())
+    if table_config.get('dbSource'):
+        base['enableMultiDataSource'] = 1
+    return json.dumps(base, ensure_ascii=False)
+
+
+def build_fields_from_config(field_configs, table_config=None):
+    """从配置列表构建字段数组（含系统字段，树表自动加 name/pid/has_child）"""
     fields = make_system_fields()
+    if table_config and table_config.get('isTree') == 'Y':
+        existing_names = {f.get('dbFieldName', '') for f in field_configs}
+        tree_name = table_config.get('treeFieldname', 'name')
+        tree_pid = table_config.get('treeParentIdField', 'pid')
+        tree_child = table_config.get('treeIdField', 'has_child')
+        if tree_name not in existing_names:
+            fields.append({"id": rand_id(tree_name[:8]), "dbFieldName": tree_name, "dbFieldTxt": "节点名称", "queryConfigFlag": "0", "fieldMustInput": "1", "isShowForm": "1", "isShowList": "1", "isReadOnly": "0", "fieldShowType": "text", "fieldLength": 200, "isQuery": "1", "queryMode": "single", "dbLength": 200, "dbPointLength": 0, "dbType": "string", "dbIsKey": "0", "dbIsNull": "0", "orderNum": 1})
+        # pid 紧跟 name(orderNum=2)，仅表单可见(树列已展示层级，列表无需再显父节点)
+        if tree_pid not in existing_names:
+            fields.append({"id": rand_id(tree_pid[:8]), "dbFieldName": tree_pid, "dbFieldTxt": "父节点", "queryConfigFlag": "0", "fieldMustInput": "0", "isShowForm": "1", "isShowList": "0", "isReadOnly": "0", "fieldShowType": "text", "fieldLength": 120, "isQuery": "0", "queryMode": "single", "dbLength": 36, "dbPointLength": 0, "dbType": "string", "dbIsKey": "0", "dbIsNull": "1", "orderNum": 2})
+        if tree_child not in existing_names:
+            fields.append({"id": rand_id(tree_child[:8]), "dbFieldName": tree_child, "dbFieldTxt": "是否有子节点", "queryConfigFlag": "0", "fieldMustInput": "0", "isShowForm": "0", "isShowList": "0", "isReadOnly": "0", "fieldShowType": "text", "fieldLength": 120, "isQuery": "0", "queryMode": "single", "dbLength": 1, "dbPointLength": 0, "dbType": "string", "dbIsKey": "0", "dbIsNull": "1", "orderNum": 999})
     for i, fc in enumerate(field_configs):
         fields.append(_make_field_from_config(fc, 6 + i))
     return fields
@@ -254,9 +277,10 @@ def build_head(table_config):
         "scroll": table_config.get('scroll', 1),
         "isPage": table_config.get('isPage', 'Y'),
         "isTree": table_config.get('isTree', 'N'),
-        "extConfigJson": table_config.get('extConfigJson', make_ext_config()),
+        "extConfigJson": _build_ext_config(table_config),
         "isDesForm": "N",
-        "desFormCode": ""
+        "desFormCode": "",
+        "dbSource": table_config.get('dbSource', '')
     }
     # 主表额外字段
     if table_config.get('tableType') == 2:
@@ -296,7 +320,7 @@ def create_table(api_base, token, table_config):
     print(f'创建表: {table_name} ({table_txt})')
     print(f'{"=" * 50}')
 
-    fields = build_fields_from_config(table_config.get('fields', []))
+    fields = build_fields_from_config(table_config.get('fields', []), table_config)
 
     # 子表自动注入外键字段（tableType=3 且配置了 mainTable）
     # 规则：子表必须有一个隐藏的外键字段指向主表，否则主子表关联完全失效。
@@ -619,7 +643,7 @@ def _addall_table(api_base, token, table_config):
     print(f'创建表: {table_name} ({table_config.get("tableTxt", "")})')
     print(f'{"=" * 50}')
 
-    fields = build_fields_from_config(table_config.get('fields', []))
+    fields = build_fields_from_config(table_config.get('fields', []), table_config)
 
     if table_config.get('tableType') == 3:
         main_table = table_config.get('mainTable', '')
@@ -657,7 +681,11 @@ def _addall_table(api_base, token, table_config):
 
 
 def _create_with_auto_suffix(api_base, token, table_config, sub_configs=None):
-    """创建表，名称冲突时自动加 _1/_2/_3 后缀重试，并同步更新关联子表的 mainTable 引用。"""
+    """创建表，名称冲突时自动加 _1/_2/_3 后缀重试，并同步更新关联子表的 mainTable 引用。
+
+    关键：addAll 返回 success=false 时，Online head 可能已写入但物理表同步失败。
+    重试前必须先 DELETE 已写入的 Online head，否则一次调用产生两条记录。
+    """
     original_name = table_config['tableName']
     for attempt in range(4):  # 尝试原名, _1, _2, _3
         cfg = table_config if attempt == 0 else {**table_config, 'tableName': f'{original_name}_{attempt}'}
@@ -673,7 +701,24 @@ def _create_with_auto_suffix(api_base, token, table_config, sub_configs=None):
             return name, True, cfg
         if '已存在' not in (msg or ''):
             return name, False, cfg  # 非冲突错误，不重试
+        # addAll 虽然返回 false，但 Online head 可能已写入 → 必须删掉再重试
+        _cleanup_orphan_head(api_base, token, name)
     return original_name, False, table_config
+
+
+def _cleanup_orphan_head(api_base, token, table_name):
+    """删除 addAll 失败后残留的 Online head（避免一次调用产生两条记录）。"""
+    try:
+        r = api_request(api_base, token,
+                        f'/online/cgform/head/list?tableName={table_name}&copyType=0&pageNo=1&pageSize=1',
+                        method='GET')
+        records = (r.get('result') or {}).get('records', [])
+        if records:
+            hid = records[0]['id']
+            api_request(api_base, token, f'/online/cgform/head/delete?id={hid}', method='DELETE')
+            print(f'  [清理] 已删除残留 Online head: {table_name} (id={hid})')
+    except Exception as e:
+        print(f'  [清理] 删除残留 head 失败（可忽略）: {e}')
 
 
 def _get_head_id_task(args):
