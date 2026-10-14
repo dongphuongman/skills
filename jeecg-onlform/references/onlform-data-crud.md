@@ -144,14 +144,15 @@ body 中子表数据以**子表名为 key、数组为 value** 嵌入主表字段
 | 按编码搜索字典 | GET | `/sys/dict/list?dictCode=*urgent_level*` |
 | 按名称搜索字典 | GET | `/sys/dict/list?dictName=*紧急*` |
 | 查询字典项（通过dictId） | GET | `/sys/dictItem/list?pageNo=1&pageSize=10&dictId={dictId}` |
-| **按 dictCode 直接拿字典项**（一次调用） | GET | `/sys/api/queryDictItemsByCode?code={dictCode}` |
+| **按 dictCode 直接拿字典项**（一次调用，需签名） | GET | `/sys/dict/getDictItems/{dictCode}` |
 
 **使用流程：** 先通过 `/sys/dict/list` 查到字典的 `id`，再通过 `/sys/dictItem/list?dictId={id}` 查 `itemValue`（存储值）和 `itemText`（显示文本）。
 
-**`queryDictItemsByCode` 用法说明：**
-- 已知 `dictCode` 且只需要字典项（不关心字典本身的元数据）时，用 `GET /sys/api/queryDictItemsByCode?code={dictCode}` **一次调用**即可拿到 `[{value, text, color}]` 数组，比上面的两步法快。
+**`getDictItems` 用法说明：**
+- 已知 `dictCode` 且只需要字典项（不关心字典本身的元数据）时，用 `GET /sys/dict/getDictItems/{dictCode}` **一次调用**即可拿到 `[{value, text, color}]` 数组，比上面的两步法快；但需要带 `X-Sign`、`X-Timestamp` 签名头（签名算法见 jeecg-system skill 的 `query_sql_table_dict()`），不方便签名时用两步法。
 - 内置字典（`yn` / `sex` / `valid_status` / `priority` / `bpm_status` 等，见 `SKILL.md` 内置字典表）**不要调用此接口**，直接用固化值。
-- ❌ **错误反例（后端不存在）**：`/sys/dict/queryDictItemsByCode/{code}` —— 路径前缀错（应为 `/sys/api`）、参数风格错（应为 query 串，不是 path variable）。误用会返回 `"路径不存在，请检查路径是否正确"`。
+- ❌ **错误反例（后端不存在）**：`/sys/dict/queryDictItemsByCode/{code}`，误用会返回 `"路径不存在，请检查路径是否正确"`。
+- ❌ `/sys/api/queryDictItemsByCode?code=` 是微服务内部接口，2026-10-14 起单体模式下不存在，同样返回「路径不存在」。
 
 ---
 

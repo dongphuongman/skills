@@ -259,7 +259,7 @@
 
 | 方法 | 路径 | 说明 | 参数 |
 |------|------|------|------|
-| GET | `/sys/api/getDictItems?dictCode={dictCode}` | **获取字典选项列表** | Query: `dictCode` |
+| GET | `/sys/dict/getDictItems/{dictCode}` | **获取字典选项列表**（普通字典、SQL 表字典通用，需 `X-Sign` 签名）。⚠️ 旧的 `/sys/api/getDictItems` 是微服务内部接口，单体下不存在 | Path: `dictCode` |
 | GET | `/sys/dict/getDictText/{dictCode}/{key}` | 获取字典文本值 | Path: `dictCode`, `key` |
 | GET | `/sys/dict/queryAllDictItems` | 获取全部字典数据（Map） | 无参数 |
 | GET | `/sys/dict/loadDict/{dictCode}` | 下拉搜索异步加载 | Path: `dictCode`; Query: `keyword`, `sign`, `pageNo`, `pageSize` |

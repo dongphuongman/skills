@@ -391,15 +391,12 @@ def _compute_dict_sign(dict_code):
 
 def query_dict(dict_code):
     """
-    查询字典项列表（通过 /sys/api/getDictItems 接口）。
+    查询字典项列表（通过 /sys/dict/getDictItems/{dictCode} 接口，普通字典和 SQL 表字典通用）。
     返回: [{'value': '1', 'text': '男'}, {'value': '2', 'text': '女'}]
+
+    ⚠️ 2026-10-14 起 /sys/api/** 是微服务内部接口，单体模式下不存在（返回「路径不存在」），不要再调用。
     """
-    result = _request(f'/sys/api/getDictItems?dictCode={urllib.parse.quote(dict_code)}')
-    if isinstance(result, list):
-        return result
-    if result.get('success'):
-        return result.get('result', [])
-    return []
+    return query_sql_table_dict(dict_code)
 
 
 def query_sql_table_dict(dict_code):
@@ -410,7 +407,8 @@ def query_sql_table_dict(dict_code):
     import time
     ts_ms = str(int(time.time() * 1000))
     sign = _compute_dict_sign(dict_code)
-    url = f'{_API_BASE}/sys/dict/getDictItems/{urllib.parse.quote(dict_code)}?_t={ts_ms}'
+    # 逗号必须保留原样：后端按原始路径判断是否含逗号来决定签名参数，编码成 %2C 会签名校验失败（2026-10-14 实测）
+    url = f'{_API_BASE}/sys/dict/getDictItems/{urllib.parse.quote(dict_code, safe=",")}?_t={ts_ms}'
     headers = {
         'X-Access-Token': _TOKEN,
         'X-Sign': sign,

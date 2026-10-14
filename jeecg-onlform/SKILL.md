@@ -161,7 +161,8 @@ skill 已提供 `onlform_creator.py` / `onlform_jimureport.py` 等脚本，它�
   仅在字典编码**明显是业务自定义**且不确定是否创建过时才发 `sys/dict/list` 查询。
 
 - **❌ 严禁拼造 `/sys/dict/queryDictItemsByCode/{code}` 这种 RESTful 风格的字典查询路径**：后端根本没有这个端点，会返回 `"路径不存在，请检查路径是否正确"`。
-  - 正确的「按 dictCode 直接拿字典项」接口是 `GET /sys/api/queryDictItemsByCode?code={dictCode}`（`code` 走 query 串，不是 path variable）。
+  - 「按 dictCode 直接拿字典项」的前端接口是 `GET /sys/dict/getDictItems/{dictCode}`，但需要 `X-Sign` 签名；不想处理签名就用下面的两步法。
+  - ⚠️ `/sys/api/queryDictItemsByCode` 是微服务内部接口，2026-10-14 起单体模式下不存在，不要再用。
   - 但对上表中的内置字典，**仍然不要调用任何接口**——直接用固化值。
   - 业务自定义字典优先走 `sys/dict/list?dictCode=xxx` + `sys/dictItem/list?dictId={id}` 两步法（见 `references/onlform-data-crud.md`）。
 
@@ -192,7 +193,8 @@ JeecgBoot 后端的 context path 因部署而异：
 
 **「路径不存在」也可能是接口路径本身写错了**（context path 没问题，但端点本身后端没有）。常见反例：
 - ❌ `/sys/dict/queryDictItemsByCode/{code}` —— 路径 + 风格全错，后端没有这个端点
-- ✅ 正确：`GET /sys/api/queryDictItemsByCode?code={code}`（注意是 `/sys/api`，参数走 query）
+- ❌ `/sys/api/queryDictItemsByCode?code={code}` —— 微服务内部接口，单体下不存在（2026-10-14 起）
+- ✅ 正确：`sys/dict/list?dictCode=xxx` + `sys/dictItem/list?dictId={id}` 两步法；或带签名调 `GET /sys/dict/getDictItems/{dictCode}`
 
 排查顺序：先按 context path 加/去 `/jeecg-boot` 重试；仍然 404 时，回到 SKILL 文档/references 里复核接口路径——**不要凭印象拼 RESTful 风格的 URL**。
 

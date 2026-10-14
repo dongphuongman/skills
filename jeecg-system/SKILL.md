@@ -176,7 +176,7 @@ dept = find_dept('研发部')
 positions = query_dept_positions()
 
 # ====== 字典 ======
-# 查询字典项（普通字典，通过 /sys/api/getDictItems）
+# 查询字典项（普通字典，通过 /sys/dict/getDictItems/{dictCode}，内部自动签名）
 items = query_dict('sex')  # → [{'value': '1', 'text': '男'}, ...]
 # 查询 SQL 表字典项（通过 /sys/dict/getDictItems/{dictCode}，需签名）
 items_sql = query_sql_table_dict("sys_user,realname,id,username!='admin' order by create_time")
@@ -327,7 +327,7 @@ if dept:
 | `/sys/sysDepart/queryDepartAndPostTreeSync` | GET | 部门+岗位树 | `query_dept_positions()` |
 | `/sys/dict/list` | GET | 字典列表（分页） | `search_dict()` |
 | `/sys/dict/add` | POST | 创建字典 | `create_dict()` |
-| `/sys/api/getDictItems?dictCode=` | GET | 查询字典项（普通字典） | `query_dict()` |
+| `/sys/dict/getDictItems/{dictCode}` | GET | 查询字典项（普通字典，需签名；`/sys/api/**` 为微服务内部接口，单体下不存在） | `query_dict()` |
 | `/sys/dict/getDictItems/{dictCode}` | GET | 查询 SQL 表字典项（需签名） | `query_sql_table_dict()` |
 | `/sys/dictItem/add` | POST | 创建字典项 | `create_dict()` 内部调用 |
 
